@@ -48,48 +48,137 @@ const generateResourceSummary = () => {
 const generateGameLayout = () => {
   return `
     <div class="game-container">
-      <!-- Header -->
-      <div class="game-header">
-        <div class="victory-tracker">
-          <div class="victory-tracker-left">
-            <div class="victory-stat large">
-              <div class="victory-value score-value-large">0</div>
-            </div>
-            <div class="victory-stat large">
-              <div class="victory-icon-backdrop crown">👑</div>
-              <div class="victory-value overlaid">0</div>
-            </div>
-            <div class="victory-stat large">
-              <div class="victory-icon-backdrop color blue"></div>
-              <div class="victory-value overlaid">0</div>
+      <!-- Top Bar: Token Board (left) and Opponent Stats (right) -->
+      <div class="top-bar">
+        <div class="token-board-container" id="token-board-top">
+          <div class="token-board" data-clickable="popover" data-popover="token-selection-modal">
+            <div class="token-spaces">
+              <div class="token-space"><div class="token token-blue"></div></div>
+              <div class="token-space"><div class="token token-white"></div></div>
+              <div class="token-space"><div class="token token-green"></div></div>
+              <div class="token-space"><div class="token token-black"></div></div>
+              <div class="token-space"><div class="token token-red"></div></div>
+              <div class="token-space"><div class="token token-pearl"></div></div>
+              <div class="token-space"><div class="token token-blue"></div></div>
+              <div class="token-space"><div class="token token-white"></div></div>
+              <div class="token-space"><div class="token token-green"></div></div>
+              <div class="token-space"><div class="token token-black"></div></div>
+              <div class="token-space"><div class="token token-red"></div></div>
+              <div class="token-space"><div class="token token-gold"></div></div>
+              <div class="token-space"><div class="token token-blue"></div></div>
+              <div class="token-space"><div class="token token-white"></div></div>
+              <div class="token-space"><div class="token token-green"></div></div>
+              <div class="token-space"><div class="token token-black"></div></div>
+              <div class="token-space"><div class="token token-red"></div></div>
+              <div class="token-space"><div class="token token-pearl"></div></div>
+              <div class="token-space"><div class="token token-blue"></div></div>
+              <div class="token-space"><div class="token token-white"></div></div>
+              <div class="token-space"><div class="token token-green"></div></div>
+              <div class="token-space"><div class="token token-black"></div></div>
+              <div class="token-space"><div class="token token-red"></div></div>
+              <div class="token-space"><div class="token token-gold"></div></div>
+              <div class="token-space"><div class="token token-blue"></div></div>
             </div>
           </div>
-          <div class="victory-tracker-right">
-            <div class="opponent-display-wrapper">
-              <div class="opponent-header-row">
-                <div class="opponent-scrolls">
+        </div>
+        <div class="opponent-stats-container" id="opponent-stats" data-clickable="popover" data-popover="opponent-hand-modal">
+          <div class="opponent-resources-bar">
+            <div class="opponent-victory-tracker-left">
+              <div class="victory-stat small">
+                <div class="victory-value score-value">0</div>
+              </div>
+              <div class="victory-stat small">
+                <div class="victory-icon-backdrop crown">👑</div>
+                <div class="victory-value overlaid">0</div>
+              </div>
+              <div class="victory-stat small">
+                <div class="victory-icon-backdrop color red"></div>
+                <div class="victory-value overlaid">0</div>
+              </div>
+            </div>
+            <div class="opponent-resources">
+              <div class="opponent-hand-header-left">
+                <div class="opponent-player-scrolls">
                   <span class="privilege-scroll-emoji">🗞️</span>
                   <span class="privilege-scroll-emoji">🗞️</span>
                   <span class="privilege-scroll-emoji">🗞️</span>
-                </div>
-                <div class="opponent-tokens">
-                  <span class="token-indicator gold">🟡</span>
-                  <span class="token-indicator pearl">⚪</span>
                 </div>
               </div>
-              <div class="opponent-stats-row">
-                <div class="victory-stat small">
-                  <div class="victory-value score-value">0</div>
+              <div class="opponent-hand-header-right">
+                <div class="stat-icon pearl">
+                  <span class="stat-count pearl-count">0</span>
                 </div>
-                <div class="victory-stat small">
-                  <div class="victory-icon-backdrop crown">👑</div>
-                  <div class="victory-value overlaid">0</div>
-                </div>
-                <div class="victory-stat small">
-                  <div class="victory-icon-backdrop color red"></div>
-                  <div class="victory-value overlaid">0</div>
+                <div class="stat-icon gold">
+                  <span class="stat-count gold-count">0</span>
                 </div>
               </div>
+            </div>
+          </div>
+          <div class="opponent-color-cards-row">
+            <div class="opponent-color-card blue">
+              <div class="opponent-token-dots">
+                <span class="opponent-token-dot blue"></span>
+                <span class="opponent-token-dot blue"></span>
+              </div>
+              <div class="opponent-power-circle blue">0</div>
+              <div class="opponent-points-value">0 pts</div>
+            </div>
+            
+            <div class="opponent-color-card white">
+              <div class="opponent-token-dots">
+                <span class="opponent-token-dot white"></span>
+              </div>
+              <div class="opponent-power-circle white">0</div>
+              <div class="opponent-points-value">0 pts</div>
+            </div>
+            
+            <div class="opponent-color-card green">
+              <div class="opponent-token-dots">
+              </div>
+              <div class="opponent-power-circle green">0</div>
+              <div class="opponent-points-value">0 pts</div>
+            </div>
+            
+            <div class="opponent-color-card red">
+              <div class="opponent-token-dots">
+                <span class="opponent-token-dot red"></span>
+                <span class="opponent-token-dot red"></span>
+                <span class="opponent-token-dot red"></span>
+                <span class="opponent-token-dot red"></span>
+              </div>
+              <div class="opponent-power-circle red">0</div>
+              <div class="opponent-points-value">0 pts</div>
+            </div>
+            
+            <div class="opponent-color-card black">
+              <div class="opponent-wild-token-icon">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                  <!-- Black section (top) -->
+                  <polygon points="12,12 12,2 21.6,8.6" fill="#2c3e50"/>
+                  
+                  <!-- White section (top-right) -->
+                  <polygon points="12,12 21.6,8.6 18.1,20.3" fill="#f0f0f0" stroke="#ccc"/>
+                  
+                  <!-- Red section (bottom-right) -->
+                  <polygon points="12,12 18.1,20.3 5.9,20.3" fill="#e74c3c"/>
+                  
+                  <!-- Green section (bottom-left) -->
+                  <polygon points="12,12 5.9,20.3 2.4,8.6" fill="#7ed321"/>
+                  
+                  <!-- Blue section (top-left) -->
+                  <polygon points="12,12 2.4,8.6 12,2" fill="#4a90e2"/>
+                  
+                  <polygon points="12,2 21.6,8.6 18.1,20.3 5.9,20.3 2.4,8.6" fill="none" stroke="#333" stroke-width="0.6"/>
+                </svg>
+              </div>
+              <div class="opponent-power-circle black">0</div>
+              <div class="opponent-points-value">0 pts</div>
+            </div>
+            
+            <div class="opponent-reserved-section">
+              <div class="opponent-reserved-icon">📋</div>
+              <div class="opponent-reserved-count">0</div>
+              <div class="opponent-reserved-label">Res</div>
             </div>
           </div>
         </div>
@@ -173,167 +262,191 @@ const generateGameLayout = () => {
         </div>
       </div>
 
-      <div class="main-display-container">
-        <div class="board-panel board-panel-primary" id="pyramid-panel" data-panel="pyramid">
-          <div class="pyramid-info-corner fades-when-mini">
-            <div class="royal-cards-summary card-shaped">
-              <div class="royal-card-icon-centered">👑</div>
-              <div class="royal-card-label">4</div>
-            </div>
+      <!-- Opponent Hand Modal -->
+      <div class="modal-overlay" id="opponent-hand-modal" style="display: none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Opponent's Hand</h3>
+            <button class="close-modal" onclick="closePopover('opponent-hand-modal')">×</button>
           </div>
-          <div class="card-pyramid">
-            <div class="pyramid-row">
-              <div class="draw-deck level-3-deck fades-when-mini">
-                <div class="deck-count">21</div>
-              </div>
-              <div class="card level-3-card">
-                <div class="card-header">
-                  <div class="card-level level-3">3</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-              <div class="card level-3-card">
-                <div class="card-header">
-                  <div class="card-level level-3">3</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-              <div class="card level-3-card">
-                <div class="card-header">
-                  <div class="card-level level-3">3</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="pyramid-row">
-              <div class="draw-deck level-2-deck fades-when-mini">
-                <div class="deck-count">18</div>
-              </div>
-              <div class="card level-2-card">
-                <div class="card-header">
-                  <div class="card-level level-2">2</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-              <div class="card level-2-card">
-                <div class="card-header">
-                  <div class="card-level level-2">2</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-              <div class="card level-2-card">
-                <div class="card-header">
-                  <div class="card-level level-2">2</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-              <div class="card level-2-card">
-                <div class="card-header">
-                  <div class="card-level level-2">2</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="pyramid-row">
-              <div class="draw-deck level-1-deck fades-when-mini">
-                <div class="deck-count">7</div>
-              </div>
-              <div class="card level-1-card">
-                <div class="card-header">
-                  <div class="card-level level-1">1</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-              <div class="card level-1-card">
-                <div class="card-header">
-                  <div class="card-level level-1">1</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-              <div class="card level-1-card">
-                <div class="card-header">
-                  <div class="card-level level-1">1</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-              <div class="card level-1-card">
-                <div class="card-header">
-                  <div class="card-level level-1">1</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-              <div class="card level-1-card">
-                <div class="card-header">
-                  <div class="card-level level-1">1</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+0</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="board-panel board-panel-secondary" id="token-panel" data-panel="token">
-          <div class="token-board">
-            <div class="token-spaces">
-              <div class="token-space"><div class="token token-blue"></div></div>
-              <div class="token-space"><div class="token token-white"></div></div>
-              <div class="token-space"><div class="token token-green"></div></div>
-              <div class="token-space"><div class="token token-black"></div></div>
-              <div class="token-space"><div class="token token-red"></div></div>
-              <div class="token-space"><div class="token token-pearl"></div></div>
-              <div class="token-space"><div class="token token-blue"></div></div>
-              <div class="token-space"><div class="token token-white"></div></div>
-              <div class="token-space"><div class="token token-green"></div></div>
-              <div class="token-space"><div class="token token-black"></div></div>
-              <div class="token-space"><div class="token token-red"></div></div>
-              <div class="token-space"><div class="token token-gold"></div></div>
-              <div class="token-space"><div class="token token-blue"></div></div>
-              <div class="token-space"><div class="token token-white"></div></div>
-              <div class="token-space"><div class="token token-green"></div></div>
-              <div class="token-space"><div class="token token-black"></div></div>
-              <div class="token-space"><div class="token token-red"></div></div>
-              <div class="token-space"><div class="token token-pearl"></div></div>
-              <div class="token-space"><div class="token token-blue"></div></div>
-              <div class="token-space"><div class="token token-white"></div></div>
-              <div class="token-space"><div class="token token-green"></div></div>
-              <div class="token-space"><div class="token token-black"></div></div>
-              <div class="token-space"><div class="token token-red"></div></div>
-              <div class="token-space"><div class="token token-gold"></div></div>
-              <div class="token-space"><div class="token token-blue"></div></div>
-            </div>
+          <div class="modal-body">
+            <!-- Content will go here -->
           </div>
         </div>
       </div>
 
-      <!-- Global Hand Display (always at bottom) -->
-      <div class="global-hand-display" id="player-hand">
-        <div class="hand-header">
+      <!-- Card Detail Popover -->
+      <div class="modal-overlay" id="card-detail-popover" style="display: none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Card Details</h3>
+            <button class="close-modal" onclick="closePopover('card-detail-popover')">×</button>
+          </div>
+          <div class="modal-body">
+            <!-- Content will go here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Token Selection Modal -->
+      <div class="modal-overlay" id="token-selection-modal" style="display: none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Select Tokens</h3>
+            <button class="close-modal" onclick="closePopover('token-selection-modal')">×</button>
+          </div>
+          <div class="modal-body">
+            <!-- Content will go here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Pyramid Area -->
+      <div class="pyramid-container">
+          <div class="card-pyramid">
+            <div class="pyramid-row">
+              <div class="deck-meter-container">
+                <div class="deck-meter">
+                  <div class="meter-fill level-3" style="height: 85%"></div>
+                </div>
+              </div>
+              <div class="card level-3-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-3">3</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card level-3-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-3">3</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card level-3-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-3">3</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card-spacer"></div>
+              <div class="royal-cards-summary card-shaped" id="royal-cards-trigger" data-clickable="popover" data-popover="royal-modal">
+                <div class="royal-card-icon-centered">👑</div>
+                <div class="royal-card-label">4</div>
+              </div>
+            </div>
+
+            <div class="pyramid-row">
+              <div class="deck-meter-container">
+                <div class="deck-meter">
+                  <div class="meter-fill level-2" style="height: 72%"></div>
+                </div>
+              </div>
+              <div class="card level-2-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-2">2</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card level-2-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-2">2</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card level-2-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-2">2</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card level-2-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-2">2</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="pyramid-row">
+              <div class="deck-meter-container">
+                <div class="deck-meter">
+                  <div class="meter-fill level-1" style="height: 58%"></div>
+                </div>
+              </div>
+              <div class="card level-1-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-1">1</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card level-1-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-1">1</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card level-1-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-1">1</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card level-1-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-1">1</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+              <div class="card level-1-card" data-clickable="card" data-popover="card-detail-popover">
+                <div class="card-header">
+                  <div class="card-level level-1">1</div>
+                </div>
+                <div style="text-align: center; margin-top: 40px;">
+                  <div class="prestige-points">+0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      <!-- Player Stats Section -->
+      <div class="player-stats-bar">
+        <div class="victory-tracker-left">
+          <div class="victory-stat large">
+            <div class="victory-value score-value-large">0</div>
+          </div>
+          <div class="victory-stat large">
+            <div class="victory-icon-backdrop crown">👑</div>
+            <div class="victory-value overlaid">0</div>
+          </div>
+          <div class="victory-stat large">
+            <div class="victory-icon-backdrop color blue"></div>
+            <div class="victory-value overlaid">0</div>
+          </div>
+        </div>
+        <div class="player-resources">
           <div class="hand-header-left">
             <div class="player-scrolls">
               <span class="privilege-scroll-emoji">🗞️</span>
@@ -350,49 +463,72 @@ const generateGameLayout = () => {
             </div>
           </div>
         </div>
-        
+      </div>
+
+      <!-- Global Hand Display (always at bottom) -->
+      <div class="global-hand-display" id="player-hand">
         <div class="color-cards-row">
           <div class="color-card blue">
-            <div class="token-overlay blue">
-              <span class="token-count">2</span>
+            <div class="token-dots">
+              <span class="token-dot blue"></span>
+              <span class="token-dot blue"></span>
             </div>
-            <div class="card-count">1 card</div>
-            <div class="points-value">+3</div>
+            <div class="power-circle blue">3</div>
+            <div class="points-value">3 pts</div>
           </div>
           
           <div class="color-card white">
-            <div class="token-overlay white">
-              <span class="token-count">1</span>
+            <div class="token-dots">
+              <span class="token-dot white"></span>
             </div>
-            <div class="card-count">0 cards</div>
-            <div class="points-value">+0</div>
+            <div class="power-circle white">1</div>
+            <div class="points-value">0 pts</div>
           </div>
           
           <div class="color-card green">
-            <div class="token-overlay green">
-              <span class="token-count">0</span>
+            <div class="token-dots">
             </div>
-            <div class="card-count">2 cards</div>
-            <div class="points-value">+5</div>
+            <div class="power-circle green">2</div>
+            <div class="points-value">5 pts</div>
           </div>
           
           <div class="color-card red">
-            <div class="token-overlay red">
-              <span class="token-count">0</span>
+            <div class="token-dots">
+              <span class="token-dot red"></span>
+              <span class="token-dot red"></span>
+              <span class="token-dot red"></span>
+              <span class="token-dot red"></span>
             </div>
-            <div class="card-count">0 cards</div>
-            <div class="points-value">+0</div>
+            <div class="power-circle red">0</div>
+            <div class="points-value">0 pts</div>
           </div>
           
           <div class="color-card black">
-            <div class="token-overlay black">
-              <span class="token-count">1</span>
+            <div class="wild-token-icon">
+              <svg viewBox="0 0 32 32" width="32" height="32">
+                <!-- Black section (top) -->
+                <polygon points="16,16 16,2 29.3,11.7" fill="#2c3e50"/>
+                
+                <!-- White section (top-right) -->
+                <polygon points="16,16 29.3,11.7 24.2,27.3" fill="#f0f0f0" stroke="#ccc"/>
+                
+                <!-- Red section (bottom-right) -->
+                <polygon points="16,16 24.2,27.3 7.8,27.3" fill="#e74c3c"/>
+                
+                <!-- Green section (bottom-left) -->
+                <polygon points="16,16 7.8,27.3 2.7,11.7" fill="#7ed321"/>
+                
+                <!-- Blue section (top-left) -->
+                <polygon points="16,16 2.7,11.7 16,2" fill="#4a90e2"/>
+                
+                <polygon points="16,2 29.3,11.7 24.2,27.3 7.8,27.3 2.7,11.7" fill="none" stroke="#333" stroke-width="0.8"/>
+              </svg>
             </div>
-            <div class="card-count">1 card</div>
-            <div class="points-value">+2</div>
+            <div class="power-circle black">1</div>
+            <div class="points-value">2 pts</div>
           </div>
           
-          <div class="reserved-section" id="show-reserved">
+          <div class="reserved-section" id="show-reserved" data-clickable="popover" data-popover="reserved-modal">
             <div class="reserved-icon">📋</div>
             <div class="reserved-count">1</div>
             <div class="reserved-label">Reserved</div>
@@ -403,68 +539,51 @@ const generateGameLayout = () => {
   `;
 };
 
+// Popover management functions
+const openPopover = (id) => {
+  const popover = document.getElementById(id);
+  if (popover) {
+    popover.style.display = "flex";
+  }
+};
+
+const closePopover = (id) => {
+  const popover = document.getElementById(id);
+  if (popover) {
+    popover.style.display = "none";
+  }
+};
+
+// Close any open popover on escape key
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const openPopovers = document.querySelectorAll(".modal-overlay[style*='flex']");
+    openPopovers.forEach(popover => popover.style.display = "none");
+  }
+});
+
 // Initialize the game
 document.querySelector("#app").innerHTML = generateGameLayout();
 
-const mainDisplayContainer = document.querySelector(".main-display-container");
-const panels = {
-  pyramid: document.getElementById("pyramid-panel"),
-  token: document.getElementById("token-panel"),
-};
-
-const swapBoards = () => {
-  Object.values(panels).forEach((panel) => {
-    panel.classList.toggle("board-panel-primary");
-    panel.classList.toggle("board-panel-secondary");
-  });
-  mainDisplayContainer.classList.toggle("board-swapped");
-};
-
-panels.pyramid?.addEventListener("click", () => {
-  if (!mainDisplayContainer.classList.contains("board-swapped")) {
-    return;
-  }
-  swapBoards();
-});
-
-panels.token?.addEventListener("click", () => {
-  if (mainDisplayContainer.classList.contains("board-swapped")) {
-    return;
-  }
-  swapBoards();
-});
-
-// Reserved cards modal functionality
-document.querySelector("#show-reserved")?.addEventListener("click", () => {
-  document.getElementById("reserved-modal").style.display = "flex";
-});
-
-// Close modal when clicking outside
-document.getElementById("reserved-modal")?.addEventListener("click", (e) => {
-  if (e.target.id === "reserved-modal") {
-    e.target.style.display = "none";
-  }
-});
-
-document.getElementById("royal-modal")?.addEventListener("click", (e) => {
-  if (e.target.id === "royal-modal") {
-    e.target.style.display = "none";
-  }
-});
-
-// Close modal on escape key
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    document.getElementById("reserved-modal").style.display = "none";
-    document.getElementById("royal-modal").style.display = "none";
-  }
-});
-
-// Royal cards summary click handler
+// Wire up all popover triggers
 document.addEventListener("click", (e) => {
-  if (e.target.closest(".royal-cards-summary")) {
-    document.getElementById("royal-modal").style.display = "flex";
+  const trigger = e.target.closest("[data-clickable]");
+  if (!trigger) return;
+
+  const popoverId = trigger.dataset.popover;
+  if (popoverId) {
+    openPopover(popoverId);
   }
 });
 
-// Player toggle removed - using scrolls to show player ownership
+// Close popovers when clicking outside them
+document.querySelectorAll(".modal-overlay").forEach(overlay => {
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) {
+      closePopover(overlay.id);
+    }
+  });
+});
+
+// Remove global popover close on ESC, it's already handled above
+window.closePopover = closePopover;

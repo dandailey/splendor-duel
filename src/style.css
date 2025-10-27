@@ -34,7 +34,7 @@ body {
 
 #app {
   width: 390px;
-  height: 920px;
+  height: 1325px; /* Taller field: 920px * 1.44 = 1325px */
   margin: 0 auto;
   background: white;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
@@ -58,6 +58,365 @@ body {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+}
+
+/* Top bar with token board (left) and opponent stats (right) */
+.top-bar {
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding: 8px;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 140px;
+  box-sizing: border-box;
+}
+
+.token-board-container {
+  flex: 0 0 30%;
+  max-width: 30%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: hidden;
+  min-height: 117px;
+}
+
+.token-board-container .token-board {
+  width: 100%;
+  max-width: 100%;
+  padding: 2px;
+}
+
+.token-board-container .token-spaces {
+  gap: 0.5px;
+  padding: 0;
+}
+
+.opponent-stats-container {
+  flex: 1 1 auto;
+  max-width: none;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  gap: 6px;
+  overflow: hidden;
+}
+
+/* Opponent resources bar - matches player layout */
+.opponent-resources-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  gap: 8px;
+}
+
+.opponent-victory-tracker-left {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  margin-right: auto;
+}
+
+.opponent-resources {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.opponent-hand-header-left {
+  display: flex;
+  gap: 2px;
+  margin-right: 4px;
+}
+
+.opponent-hand-header-right {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.opponent-hand-header-right .stat-icon {
+  width: 22px;
+  height: 22px;
+  border-width: 1.5px;
+}
+
+.opponent-hand-header-right .stat-count {
+  font-size: 0.6em;
+}
+
+.opponent-player-scrolls {
+  display: flex;
+  gap: 2px;
+}
+
+.opponent-player-scrolls .privilege-scroll-emoji {
+  font-size: 1em;
+}
+
+/* Opponent color cards row */
+.opponent-color-cards-row {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.opponent-color-card {
+  flex: 1;
+  min-width: 38px;
+  height: 62px;
+  border: 1.5px solid #333;
+  border-radius: 3px;
+  background: white;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 3px 3px 3px;
+}
+
+.opponent-color-card.blue {
+  border-color: var(--token-blue);
+  background: rgba(74, 144, 226, 0.1);
+}
+
+.opponent-color-card.white {
+  border-color: #ccc;
+  background: rgba(240, 240, 240, 0.3);
+}
+
+.opponent-color-card.green {
+  border-color: var(--token-green);
+  background: rgba(126, 211, 33, 0.1);
+}
+
+.opponent-color-card.red {
+  border-color: var(--token-red);
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.opponent-color-card.black {
+  border-color: var(--token-black);
+  background: rgba(44, 62, 80, 0.1);
+}
+
+/* Opponent token dots */
+.opponent-token-dots {
+  position: absolute;
+  top: 4px;
+  left: 3px;
+  display: grid;
+  grid-template-columns: repeat(2, 5px);
+  grid-template-rows: repeat(2, 5px);
+  gap: 2px;
+  z-index: 10;
+}
+
+.opponent-token-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  display: inline-block;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+
+.opponent-token-dot.blue { background: var(--token-blue); }
+.opponent-token-dot.white { 
+  background: var(--token-white); 
+  border: 1px solid #999;
+}
+.opponent-token-dot.green { background: var(--token-green); }
+.opponent-token-dot.red { background: var(--token-red); }
+.opponent-token-dot.black { background: var(--token-black); }
+.opponent-token-dot.gold { background: var(--token-gold); }
+.opponent-token-dot.pearl { background: var(--token-pearl); }
+
+/* Opponent wild token icon */
+.opponent-wild-token-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  opacity: 0.6;
+}
+
+/* Opponent power circle */
+.opponent-color-card .opponent-power-circle {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 2.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.5em;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+.opponent-power-circle.blue {
+  background: var(--token-blue);
+}
+
+.opponent-power-circle.white {
+  background: var(--token-white);
+  border: 0.5px solid #ccc;
+  color: #333;
+  text-shadow: none;
+}
+
+.opponent-power-circle.green {
+  background: var(--token-green);
+}
+
+.opponent-power-circle.red {
+  background: var(--token-red);
+}
+
+.opponent-power-circle.black {
+  background: var(--token-black);
+}
+
+/* Opponent points value */
+.opponent-points-value {
+  font-size: 0.5em;
+  font-weight: bold;
+  color: #333;
+  margin-top: auto;
+  margin-bottom: 2px;
+}
+
+/* Opponent reserved section */
+.opponent-reserved-section {
+  flex: 1;
+  min-width: 38px;
+  height: 62px;
+  border: 1.5px dashed #999;
+  border-radius: 3px;
+  background: #f9f9f9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 3px;
+}
+
+.opponent-reserved-section:hover {
+  background: #f0f0f0;
+  border-color: #777;
+}
+
+.opponent-reserved-icon {
+  font-size: 1.2em;
+  margin-bottom: 2px;
+}
+
+.opponent-reserved-count {
+  font-size: 0.8em;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 2px;
+}
+
+.opponent-reserved-label {
+  font-size: 0.4em;
+  color: #666;
+  text-align: center;
+}
+
+.opponent-buying-power {
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  padding: 0;
+  width: 100%;
+}
+
+.power-circle {
+  width: 24px;
+  height: 18px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65em;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+
+.power-circle.blue {
+  background: var(--token-blue);
+}
+
+.power-circle.white {
+  background: var(--token-white);
+  border: 1px solid #ccc;
+  color: #333;
+  text-shadow: none;
+}
+
+.power-circle.green {
+  background: var(--token-green);
+}
+
+.power-circle.red {
+  background: var(--token-red);
+}
+
+.power-circle.black {
+  background: var(--token-black);
+}
+
+.power-number {
+  line-height: 1;
+}
+
+/* Pyramid container - full width */
+.pyramid-container {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 8px 8px;
+}
+
+/* Player stats bar below pyramid */
+.player-stats-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: #f9f9f9;
+  border-top: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+.player-resources {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .main-display-container {
@@ -132,15 +491,16 @@ body {
 
 /* Card Pyramid */
 .card-pyramid {
-  padding: 8px;
+  padding: 0;
   max-width: 100%;
   position: relative;
 }
 
 .pyramid-row {
   display: flex;
-  justify-content: center;
-  gap: 2px;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 4px;
   margin-bottom: 4px;
 }
 
@@ -148,19 +508,53 @@ body {
   margin-bottom: 0;
 }
 
-/* Overlapping cards for compactness */
-.pyramid-row .card {
-  margin-left: -5px;
+/* Deck meter container and meter styling */
+.deck-meter-container {
+  flex-shrink: 0;
+  margin-right: 4px;
 }
 
-.pyramid-row .card:first-child {
-  margin-left: 0;
+.deck-meter {
+  width: 12px;
+  height: 98px;
+  background: rgba(44, 62, 80, 0.15);
+  border: 1px solid #888;
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+}
+
+.meter-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-radius: 5px;
+  transition: height 0.3s ease;
+}
+
+.meter-fill.level-3 {
+  background: var(--token-red);
+}
+
+.meter-fill.level-2 {
+  background: #3498db;
+}
+
+.meter-fill.level-1 {
+  background: #95a5a6;
+}
+
+@media (min-width: 900px) {
+  .deck-meter {
+    height: 102px;
+  }
 }
 
 /* Individual card */
 .card {
   width: 62px;
-  height: 82px;
+  height: 98px;
   border-radius: 5px;
   border: 1px solid #333;
   background: var(--card-back);
@@ -170,10 +564,22 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
+/* Card spacer for alignment */
+.card-spacer {
+  width: 62px;
+  height: 98px;
+  flex-shrink: 0;
+}
+
 @media (min-width: 900px) {
   .card {
     width: 65px;
-    height: 85px;
+    height: 102px;
+  }
+  
+  .card-spacer {
+    width: 65px;
+    height: 102px;
   }
 }
 
@@ -236,50 +642,39 @@ body {
 
 /* Token Board */
 .token-board {
-  padding: 4px;
   background: var(--board-color);
-  border-radius: 6px;
+  border-radius: 4px;
   position: relative;
-  border: 2px solid #6b5b3d;
+  border: 1px solid #6b5b3d;
   max-width: 100%;
 }
 
 .token-spaces {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 2px;
-  padding: 2px;
+  gap: 1px;
 }
 
 .token-space {
   aspect-ratio: 1;
-  border: 2px dashed rgba(0, 0, 0, 0.2);
-  background: rgba(255, 255, 255, 0.1);
   border-radius: 50%;
   position: relative;
   cursor: pointer;
-  transition: all 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .token-space:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(0, 0, 0, 0.4);
-}
-
-.token-space.occupied {
-  border: 2px solid rgba(0, 0, 0, 0.5);
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .token {
-  width: 70%;
-  height: 70%;
+  width: 60%;
+  height: 55%;
   border-radius: 50%;
-  border: 2px solid #333;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+  border: 1px solid #333;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 /* Sidebar elements - privilege and royal cards compact display */
@@ -365,12 +760,12 @@ body {
 
 @media (min-width: 900px) {
   .token-board {
-    padding: 10px;
+    padding: 4px;
   }
   
   .token-spaces {
-    gap: 4px;
-    padding: 6px;
+    gap: 1px;
+    padding: 2px;
   }
 }
 
@@ -836,7 +1231,7 @@ button.action-trigger {
 
 /* Modal Styles */
 .modal-overlay {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
@@ -855,6 +1250,15 @@ button.action-trigger {
   max-width: 90%;
   max-height: 90%;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
 }
 
 .modal-header {
@@ -862,6 +1266,7 @@ button.action-trigger {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -896,6 +1301,8 @@ button.action-trigger {
   gap: 12px;
   flex-wrap: wrap;
   justify-content: center;
+  width: 100%;
+  max-width: 100%;
 }
 
 .reserved-card-view {
@@ -948,7 +1355,6 @@ button.action-trigger {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
   padding: 0 4px;
 }
 
@@ -1088,40 +1494,70 @@ button.action-trigger {
   background: rgba(44, 62, 80, 0.1);
 }
 
-.token-overlay {
+
+.token-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  display: inline-block;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Token dots container for 2x2 grid */
+.token-dots {
   position: absolute;
   top: 4px;
   left: 4px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 2px solid white;
+  display: grid;
+  grid-template-columns: repeat(2, 7px);
+  grid-template-rows: repeat(2, 7px);
+  gap: 3.5px;
+  z-index: 10;
+}
+
+.token-dot.blue { background: var(--token-blue); }
+.token-dot.white { 
+  background: var(--token-white); 
+  border: 1px solid #999;
+}
+.token-dot.green { background: var(--token-green); }
+.token-dot.red { background: var(--token-red); }
+.token-dot.black { background: var(--token-black); }
+.token-dot.gold { background: var(--token-gold); }
+.token-dot.pearl { background: var(--token-pearl); }
+
+/* Power circle for color cards */
+.color-card .power-circle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 17.5px;
+  height: 17.5px;
+  border-radius: 3.5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  z-index: 10;
-  flex-shrink: 0;
-}
-
-.token-overlay.hidden,
-.token-overlay:has(.token-count:is(0)) {
-  display: none;
-}
-
-.token-overlay.blue { background: var(--token-blue); }
-.token-overlay.white { background: var(--token-white); }
-.token-overlay.green { background: var(--token-green); }
-.token-overlay.red { background: var(--token-red); }
-.token-overlay.black { background: var(--token-black); }
-.token-overlay.gold { background: var(--token-gold); }
-.token-overlay.pearl { background: var(--token-pearl); }
-
-.token-count {
-  font-size: 0.7em;
+  font-size: 0.6em;
   font-weight: bold;
   color: white;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+.color-card .power-circle.white {
+  border: 1px solid #ccc;
+  color: #333;
+  text-shadow: none;
+}
+
+/* Wild token icon for color cards */
+.wild-token-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  opacity: 0.7;
 }
 
 .color-label {
@@ -1146,12 +1582,14 @@ button.action-trigger {
   font-size: 0.65em;
   font-weight: bold;
   color: #333;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
+  margin-top: auto;
 }
 
 .reserved-section {
-  width: 60px;
-  height: 80px;
+  flex: 1;
+  min-width: 0;
+  height: 100px;
   border: 2px dashed #999;
   border-radius: 6px;
   background: #f9f9f9;
@@ -1161,7 +1599,7 @@ button.action-trigger {
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s;
-  flex-shrink: 0;
+  padding: 4px;
 }
 
 .reserved-section:hover {
@@ -1193,6 +1631,8 @@ button.action-trigger {
   gap: 12px;
   flex-wrap: wrap;
   justify-content: center;
+  width: 100%;
+  max-width: 100%;
 }
 
 .royal-card-view {
@@ -1214,23 +1654,28 @@ button.action-trigger {
   
   .color-card {
     height: 100px;
-  }
-  
-  .token-overlay {
-    width: 26px;
-    height: 26px;
-  }
-  
-  .token-count {
-    font-size: 0.7em;
-  }
-  
-  .color-card {
     padding-top: 32px;
   }
   
+  .color-card .power-circle {
+    width: 19px;
+    height: 19px;
+    border-radius: 3.75px;
+    font-size: 0.65em;
+  }
+  
+  .token-dot {
+    width: 7.5px;
+    height: 7.5px;
+  }
+  
+  .token-dots {
+    grid-template-columns: repeat(2, 7.5px);
+    grid-template-rows: repeat(2, 7.5px);
+    gap: 3.75px;
+  }
+  
   .reserved-section {
-    width: 70px;
     height: 100px;
   }
   
@@ -1438,43 +1883,6 @@ button.action-trigger {
   align-items: center;
 }
 
-.opponent-header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 4px;
-  gap: 8px;
-  width: 100%;
-}
-
-.opponent-stats-row {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.opponent-scrolls {
-  display: flex;
-  align-items: flex-start;
-  gap: -4px;
-}
-
-.opponent-tokens {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-}
-
-.opponent-scrolls .privilege-scroll-emoji {
-  font-size: 0.9em;
-}
-
-.token-indicator {
-  font-size: 1.2em;
-}
-
 .player-scrolls {
   display: flex;
   gap: 2px;
@@ -1557,19 +1965,6 @@ button.action-trigger {
   font-size: 1.4em;
 }
 
-.pyramid-info-corner .royal-cards-summary {
-  font-size: 0.85em;
-  padding: 3px 6px;
-  border-radius: 4px;
-}
-
-.pyramid-info-corner .royal-card-icon {
-  font-size: 1em;
-}
-
-.pyramid-info-corner .royal-card-count {
-  font-size: 0.85em;
-}
 
 .game-header h1 {
   font-size: 1em;
@@ -1673,26 +2068,10 @@ button.action-trigger {
   color: #8b4513;
 }
 
-/* Pyramid Info Corner */
-.pyramid-info-corner {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 10;
-  pointer-events: none;
-}
-
-.pyramid-info-corner > * {
-  pointer-events: auto;
-}
-
-.pyramid-info-corner .royal-cards-summary {
-  cursor: pointer;
-}
 
 .royal-cards-summary.card-shaped {
-  width: 38px;
-  height: 50px;
+  width: 62px;
+  height: 98px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1702,25 +2081,48 @@ button.action-trigger {
   background: #f0f0f0;
   border: 2px solid #999;
   border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.royal-cards-summary.card-shaped:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .royal-card-icon-centered {
-  font-size: 1.2em;
-  margin-top: 6px;
+  font-size: 2em;
+  margin-top: 12px;
   margin-bottom: 8px;
 }
 
 .royal-card-label {
-  font-size: 0.85em;
+  font-size: 1.1em;
   color: #333;
   font-weight: 600;
   position: absolute;
-  bottom: 3px;
-  right: 5px;
+  bottom: 6px;
+  right: 6px;
   white-space: nowrap;
-  background: rgba(255, 255, 255, 0.85);
-  padding: 1px 4px;
-  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+@media (min-width: 900px) {
+  .royal-cards-summary.card-shaped {
+    width: 65px;
+    height: 102px;
+  }
+  
+  .royal-card-icon-centered {
+    font-size: 2.2em;
+  }
+  
+  .royal-card-label {
+    font-size: 1.2em;
+  }
 }
 
 .privileges-overlay {
@@ -1737,27 +2139,3 @@ button.action-trigger {
   font-size: 1.6em;
 }
 
-/* Draw Decks */
-.draw-deck {
-  width: 38px;
-  height: 50px;
-  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
-  border: 2px solid #1a252f;
-  border-radius: 4px;
-  position: relative;
-  flex-shrink: 0;
-  margin-right: 6px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.deck-count {
-  position: absolute;
-  bottom: 3px;
-  right: 5px;
-  font-size: 0.75em;
-  font-weight: 600;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.4);
-  padding: 1px 4px;
-  border-radius: 2px;
-}
