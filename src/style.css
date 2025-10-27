@@ -323,16 +323,12 @@ body {
   border-color: #777;
 }
 
-.opponent-reserved-icon {
-  font-size: 1.2em;
-  margin-bottom: 2px;
-}
-
 .opponent-reserved-count {
-  font-size: 0.8em;
+  font-size: 1em;
   font-weight: bold;
   color: #333;
   margin-bottom: 2px;
+  text-align: center;
 }
 
 .opponent-reserved-label {
@@ -492,8 +488,10 @@ body {
 /* Card Pyramid */
 .card-pyramid {
   padding: 0;
-  max-width: 100%;
+  width: 100%;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .pyramid-row {
@@ -502,6 +500,13 @@ body {
   align-items: flex-start;
   gap: 4px;
   margin-bottom: 4px;
+  width: 100%;
+}
+
+.card-spacer {
+  flex-grow: 1;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .pyramid-row:last-child {
@@ -533,16 +538,20 @@ body {
   transition: height 0.3s ease;
 }
 
+.meter-fill {
+  background: #888;
+}
+
 .meter-fill.level-3 {
-  background: var(--token-red);
+  background: #888;
 }
 
 .meter-fill.level-2 {
-  background: #3498db;
+  background: #888;
 }
 
 .meter-fill.level-1 {
-  background: #95a5a6;
+  background: #888;
 }
 
 @media (min-width: 900px) {
@@ -562,23 +571,21 @@ body {
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-/* Card spacer for alignment */
-.card-spacer {
-  width: 62px;
-  height: 98px;
   flex-shrink: 0;
+  flex-grow: 0;
+  min-width: 62px;
+  max-width: 62px;
 }
 
 @media (min-width: 900px) {
   .card {
     width: 65px;
     height: 102px;
+    min-width: 65px;
+    max-width: 65px;
   }
   
   .card-spacer {
-    width: 65px;
     height: 102px;
   }
 }
@@ -586,6 +593,307 @@ body {
 .card:hover {
   transform: translateY(-5px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Card background styling */
+.card {
+  background: white;
+}
+
+.colored-card {
+  background: white;
+}
+
+.wild-card {
+  background: white;
+}
+
+.grey-card {
+  background: #2c2c2c;
+}
+
+/* Card stripes */
+.card-stripe-top,
+.card-stripe-bottom {
+  width: 100%;
+  position: absolute;
+  left: 0;
+}
+
+.card-stripe-top {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+  clip-path: polygon(0 0, 100% 0, 100% 50%, 0 25%);
+}
+
+/* Add subtle gradient overlay */
+.card-stripe-top::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, transparent 50%, rgba(0,0,0,0.1) 100%);
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+  pointer-events: none;
+}
+
+.card-stripe-bottom {
+  bottom: 0;
+  height: 6px; /* Thin stripe at bottom */
+  border-bottom-left-radius: 5px;
+  border-bottom-right-radius: 5px;
+}
+
+/* Grey card stripes (no-color cards) */
+.card.grey-card .card-stripe-top {
+  height: 24px; /* Same as colored cards */
+  background: #000;
+}
+
+.card.grey-card .card-stripe-bottom {
+  height: 3px; /* Thin stripe */
+  background: #000;
+}
+
+/* Color circles for colored cards - positioned in top stripe */
+.color-circle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid white;
+  box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.color-circle.blue { background: #4a90e2; }
+.color-circle.white { background: #f0f0f0; }
+.color-circle.green { background: #7ed321; }
+.color-circle.black { background: #2c3e50; }
+.color-circle.red { background: #e74c3c; }
+
+/* Wild icon for wild cards - positioned on diagonal line area */
+.wild-icon-positioned {
+  position: absolute;
+  top: 25px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+}
+
+.wild-icon-positioned svg {
+  filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+/* Points corner for grey cards - diagonal triangle in corner */
+.points-corner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50px;
+  height: 50px;
+  background: #f39c12;
+  clip-path: polygon(0 0, 0 100%, 100% 0);
+}
+
+/* Card ability icons and crowns container */
+.card-ability-container {
+  position: absolute;
+  top: 2px;
+  right: 5px;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 3px;
+  z-index: 10;
+}
+
+.card-ability {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1em;
+  line-height: 1;
+}
+
+.card-ability svg,
+.card-ability span {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-crowns {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  line-height: 0;
+}
+
+.card-crowns svg {
+  width: 16px;
+  height: 16px;
+}
+
+.card-crowns.crown-stack {
+  flex-direction: column;
+}
+
+.card-crowns.crown-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 2px;
+  width: 34px; /* 16px * 2 + 2px gap */
+  height: 34px;
+}
+
+.card-crowns.crown-grid > :nth-child(3) {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.card-crowns.crown-grid > :nth-child(4) {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.card-crowns.crown-grid span {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.ability-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9em;
+}
+
+.double-bonus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.double-bonus .color-circle {
+  position: static;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.double-plus {
+  font-size: 0.6em;
+  color: #333;
+  font-weight: bold;
+}
+
+/* Card costs */
+.card-costs {
+  position: absolute;
+  bottom: 8px;
+  left: 4px;
+  right: 4px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px;
+  max-width: 100%;
+}
+
+.cost-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  height: 18px;
+}
+
+/* Grid positioning for costs: 
+   Position 1: grid-area: 1 / 1 (top-left)
+   Position 2: grid-area: 1 / 2 (top-right)
+   Position 3: grid-area: 2 / 1 (bottom-left)
+   Position 4: grid-area: 2 / 2 (bottom-right)
+*/
+.cost-item {
+  grid-row: 2; /* Default to bottom row */
+  grid-column: 1; /* Default to left column */
+}
+
+.cost-item.cost-top {
+  grid-row: 1; /* Top row */
+}
+
+.cost-item.cost-right {
+  grid-column: 2; /* Right column */
+}
+
+.cost-token.pearl {
+  background: linear-gradient(180deg, #ffffff 0%, #ffe4e1 50%, #ffb6c1 100%);
+  border: 2px solid #ff69b4;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.cost-token {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.cost-item.blue .cost-token { background: #4a90e2; }
+.cost-item.white .cost-token { background: #f0f0f0; }
+.cost-item.green .cost-token { background: #7ed321; }
+.cost-item.red .cost-token { background: #e74c3c; }
+.cost-item.black .cost-token { background: #2c3e50; }
+
+.cost-number {
+  font-size: 0.7em;
+  font-weight: bold;
+  color: white;
+  text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+  line-height: 1;
+}
+
+.cost-item.white .cost-token .cost-number {
+  color: #333;
+}
+
+.cost-amount {
+  font-size: 0.6em;
+  font-weight: bold;
+  color: white;
+  text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
 }
 
 .card-header {
@@ -743,7 +1051,7 @@ body {
 }
 
 .royal-card-compact::after {
-  content: "👑";
+  content: "";
   position: absolute;
   top: 50%;
   left: 50%;
@@ -840,7 +1148,7 @@ body {
 }
 
 .royal-card::after {
-  content: "👑";
+  content: "";
   position: absolute;
   top: 50%;
   left: 50%;
@@ -961,14 +1269,44 @@ body {
   top: 5px;
   right: 5px;
   font-size: 1.5em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.crown-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .prestige-points {
-  position: absolute;
-  bottom: 5px;
-  left: 5px;
   font-weight: bold;
   color: #333;
+  font-size: 0.8em;
+}
+
+.card .color-circle .prestige-points {
+  font-size: 0.9em;
+  font-weight: bold;
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  line-height: 1;
+}
+
+.card .color-circle.white .prestige-points {
+  color: #333;
+  text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5);
+}
+
+.card .points-corner + .prestige-points {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  font-size: 0.8em;
+  font-weight: bold;
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  z-index: 3;
 }
 
 .big-score {
@@ -1373,40 +1711,30 @@ button.action-trigger {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 2px solid #333;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border: 2px solid transparent;
   position: relative;
   flex-shrink: 0;
-}
-
-.stat-icon::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1em;
-  z-index: 0;
 }
 
 .stat-count {
-  font-size: 0.7em;
-  font-weight: bold;
-  color: white;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-  position: relative;
-  z-index: 1;
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 0.6em;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 0 4px;
 }
 
 /* Specific icon backgrounds */
 .stat-icon.privilege {
   background: linear-gradient(135deg, #8b4513 0%, #a0522d 100%);
+  border-color: #5d3314;
 }
 
 .stat-icon.privilege::before {
@@ -1414,29 +1742,20 @@ button.action-trigger {
   font-size: 0.85em;
 }
 
-.stat-icon.pearl {
-  background: #d5c9b8;
-  border-color: #ccc;
-}
-
-.stat-icon.pearl::before {
-  content: '⚪';
-}
-
-.stat-icon.gold {
-  background: var(--token-gold);
-}
-
-.stat-icon.gold::before {
-  content: '🟡';
+.stat-icon.pearl svg,
+.stat-icon.gold svg,
+.stat-icon.crown svg {
+  width: 100%;
+  height: 100%;
 }
 
 .stat-icon.crown {
   background: linear-gradient(135deg, #d4af37 0%, #f7e98e 100%);
+  border-color: #9b7f23;
 }
 
 .stat-icon.crown::before {
-  content: '👑';
+  content: '';
 }
 
 .stat-icon.total-points {
@@ -1613,10 +1932,11 @@ button.action-trigger {
 }
 
 .reserved-count {
-  font-size: 1.2em;
+  font-size: 1.4em;
   font-weight: bold;
   color: #333;
   margin-bottom: 2px;
+  text-align: center;
 }
 
 .reserved-label {
@@ -1775,9 +2095,18 @@ button.action-trigger {
 
 .victory-icon-backdrop {
   position: absolute;
-  font-size: 2em;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.45;
   z-index: 1;
+}
+
+.victory-icon-backdrop svg {
+  width: 100%;
+  height: 100%;
 }
 
 .victory-stat.large .victory-icon-backdrop {
@@ -2080,6 +2409,8 @@ button.action-trigger {
   position: relative;
   background: #f0f0f0;
   border: 2px solid #999;
+  flex-shrink: 0;
+  flex-grow: 0;
   border-radius: 6px;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
