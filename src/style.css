@@ -394,7 +394,7 @@ body {
   flex: 1;
   position: relative;
   min-height: 0;
-  overflow: auto;
+  overflow: visible; /* Allow modal to overlay */
   padding: 0 8px 8px 8px;
 }
 
@@ -577,6 +577,328 @@ body {
   max-width: 62px;
 }
 
+/* NEW: Scalable card system using Container Query Units */
+/* Set up container queries on the card */
+.card-v2 {
+  container-type: size; /* Enable container query units! */
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  flex-shrink: 0;
+  flex-grow: 0;
+  background: white;
+  /* Dimensions and border-radius in fixed pixels - container query affects children only */
+  width: 62px;
+  height: 98px;
+  border-radius: 5px; /* Fixed pixel value - scales naturally with width/height */
+  border: 1px solid #333;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  min-width: 62px;
+  max-width: 62px;
+}
+
+/* Scale up for popover - border-radius scales proportionally */
+.card-v2.large {
+  width: 186px;
+  height: 294px;
+  border-radius: 15px; /* 3x the original 5px */
+  border: 3px solid #333;
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.2);
+  min-width: 186px;
+  max-width: 186px;
+}
+
+/* Fix stripe border-radius for large cards */
+.card-v2.large .card-stripe-top,
+.card-v2.large .card-stripe-top::after,
+.card-v2.large .card-stripe-bottom {
+  border-radius: 15px;
+}
+
+/* All child elements use container query units */
+.card-v2 .color-circle {
+  width: 32.26cqmin; /* 20/62 * 100 = 32.26% of smaller dimension */
+  height: 32.26cqmin;
+  border-radius: 50%;
+  position: absolute;
+  top: 3.23cqmin; /* 2/62 = 3.23% */
+  left: 8.06cqmin; /* 5/62 = 8.06% */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3.23cqmin solid white;
+  box-shadow: 3.23cqmin 3.23cqmin 6.45cqmin rgba(0, 0, 0, 0.5);
+}
+
+.card-v2 .color-circle .prestige-points {
+  font-size: 24cqmin !important; /* Sized to fit nicely in circle */
+  color: white;
+  text-shadow: 1.61cqmin 1.61cqmin 3.23cqmin rgba(0, 0, 0, 0.5);
+  line-height: 1 !important;
+  font-weight: bold;
+}
+
+/* Wild card points (no color circle) */
+.card-v2 .prestige-points.wild-points {
+  position: absolute;
+  top: 4.84cqmin !important;
+  left: 8.06cqmin !important;
+  font-size: 24cqmin !important; /* Match other victory points for consistency */
+  font-weight: bold;
+  color: #333;
+  line-height: 1 !important;
+  text-shadow: 
+    -1.61cqmin -1.61cqmin 0 white,
+    1.61cqmin -1.61cqmin 0 white,
+    -1.61cqmin 1.61cqmin 0 white,
+    1.61cqmin 1.61cqmin 0 white,
+    0 -1.61cqmin 0 white,
+    0 1.61cqmin 0 white,
+    -1.61cqmin 0 0 white,
+    1.61cqmin 0 0 white;
+  z-index: 10;
+}
+
+.card-v2 .card-stripe-top,
+.card-v2 .card-stripe-bottom {
+  width: 100%;
+  position: absolute;
+  left: 0;
+}
+
+.card-v2 .card-stripe-top {
+  top: 0;
+  height: 100%;
+  border-radius: 5px; /* Fixed pixel value to inherit from parent */
+  clip-path: polygon(0 0, 100% 0, 100% 50%, 0 25%);
+}
+
+.card-v2 .card-stripe-top::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, transparent 50%, rgba(0,0,0,0.1) 100%);
+  border-radius: 5px;
+  pointer-events: none;
+}
+
+.card-v2 .card-stripe-bottom {
+  bottom: 0;
+  height: 9.68cqmin;
+  border-radius: 5px;
+}
+
+.card-v2 .card-header {
+  position: absolute;
+  top: 4.84cqmin;
+  left: 4.84cqmin;
+  right: 4.84cqmin;
+  display: flex;
+}
+
+.card-v2 .points-corner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 80.65cqmin;
+  height: 80.65cqmin;
+  background: #f39c12;
+  clip-path: polygon(0 0, 0 100%, 100% 0);
+}
+
+.card-v2 .points-corner + .prestige-points {
+  position: absolute;
+  top: 4.84cqmin !important;
+  left: 6.45cqmin !important;
+  font-size: 24cqmin !important; /* Match color circle points */
+  font-weight: bold;
+  color: white;
+  text-shadow: 1.61cqmin 1.61cqmin 3.23cqmin rgba(0, 0, 0, 0.5);
+  line-height: 1 !important;
+}
+
+.card-v2 .card-ability-container {
+  position: absolute;
+  top: 6.45cqmin; /* Increased top padding even more */
+  right: 6.45cqmin; /* Increased right padding even more */
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 3.23cqmin;
+  z-index: 10;
+}
+
+.card-v2 .card-ability,
+.card-v2 .card-crowns {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 25.81cqmin;
+  line-height: 1;
+  filter: drop-shadow(0.81cqmin 0.81cqmin 1.61cqmin rgba(0, 0, 0, 0.4));
+}
+
+.card-v2 .card-crowns svg {
+  width: 27.42cqmin; /* Slightly smaller: 17px / 62px * 100 */
+  height: 27.42cqmin;
+}
+
+/* Crown layout variants */
+.card-v2 .card-crowns.crown-single {
+  width: 27.42cqmin;
+  height: 27.42cqmin;
+}
+
+.card-v2 .card-crowns.crown-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.61cqmin;
+}
+
+.card-v2 .card-crowns.crown-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 27.42cqmin);
+  grid-template-rows: repeat(2, 27.42cqmin);
+  gap: 1.61cqmin;
+  width: auto;
+  height: auto;
+}
+
+.card-v2 .card-crowns.crown-grid > span {
+  width: 27.42cqmin;
+  height: 27.42cqmin;
+}
+
+.card-v2 .card-costs {
+  position: absolute;
+  bottom: 12.9cqmin;
+  left: 9.68cqmin; /* Shifted more to the right */
+  right: 3.23cqmin;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3.23cqmin;
+  max-width: 100%;
+}
+
+.card-v2 .cost-item {
+  width: 29.03cqmin;
+  height: 29.03cqmin;
+  border-radius: 50%;
+  border: 1.61cqmin solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.card-v2 .cost-token {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-v2 .cost-number {
+  font-size: 17cqmin; /* Sized a bit smaller for better fit in cost circles */
+  font-weight: bold;
+  color: white;
+  text-shadow: 1.61cqmin 1.61cqmin 1.61cqmin rgba(0, 0, 0, 0.5);
+  line-height: 1;
+}
+
+/* Remove drop shadow for white cost tokens (black text on white background) */
+.card-v2 .cost-item.white .cost-token .cost-number {
+  text-shadow: none;
+}
+
+.card-v2 .cost-item.white .cost-number {
+  text-shadow: none;
+}
+
+/* Special handling for pearl - no border, just the SVG */
+.card-v2 .cost-item.pearl {
+  border: none !important;
+  background: transparent !important;
+  width: 32.26cqmin; /* Slightly larger to match other cost circles */
+  height: 32.26cqmin;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none !important;
+}
+
+.card-v2 .cost-item.pearl .cost-token.pearl {
+  width: 32.26cqmin; /* Match parent size */
+  height: 32.26cqmin;
+  background: transparent !important;
+  border: none !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none !important;
+}
+
+.card-v2 .cost-item.pearl svg {
+  width: 32.26cqmin !important;
+  height: 32.26cqmin !important;
+  display: block;
+  filter: drop-shadow(1.61cqmin 1.61cqmin 3.23cqmin rgba(0, 0, 0, 0.3));
+  /* Ensure no background or border from parent elements */
+  background: transparent !important;
+}
+
+.card-v2 .wild-icon-positioned {
+  position: absolute;
+  top: 40.32cqmin;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+}
+
+.card-v2 .wild-icon-positioned svg {
+  width: 45.16cqmin;
+  height: 45.16cqmin;
+}
+
+.card-v2.grey-card .card-stripe-top {
+  height: 38.71cqmin;
+  background: #000;
+}
+
+.card-v2.grey-card .card-stripe-bottom {
+  height: 4.84cqmin;
+  background: #000;
+}
+
+/* Color backgrounds for stripes */
+.card-v2.colored-card.blue .card-stripe-top { background-color: #4a90e2; }
+.card-v2.colored-card.white .card-stripe-top { background-color: #f0f0f0; }
+.card-v2.colored-card.green .card-stripe-top { background-color: #7ed321; }
+.card-v2.colored-card.black .card-stripe-top { background-color: #2c3e50; }
+.card-v2.colored-card.red .card-stripe-top { background-color: #e74c3c; }
+
+.card-v2.colored-card.blue .card-stripe-bottom { background-color: #4a90e2; }
+.card-v2.colored-card.white .card-stripe-bottom { background-color: #f0f0f0; }
+.card-v2.colored-card.green .card-stripe-bottom { background-color: #7ed321; }
+.card-v2.colored-card.black .card-stripe-bottom { background-color: #2c3e50; }
+.card-v2.colored-card.red .card-stripe-bottom { background-color: #e74c3c; }
+
+/* Cost token colors */
+.card-v2 .cost-item.blue .cost-token { background: #4a90e2; }
+.card-v2 .cost-item.white .cost-token { background: #f0f0f0; }
+.card-v2 .cost-item.green .cost-token { background: #7ed321; }
+.card-v2 .cost-item.red .cost-token { background: #e74c3c; }
+.card-v2 .cost-item.black .cost-token { background: #2c3e50; }
+
+.card-v2 .cost-item.white .cost-number {
+  color: #333;
+}
+
 @media (min-width: 900px) {
   .card {
     width: 65px;
@@ -707,11 +1029,11 @@ body {
   clip-path: polygon(0 0, 0 100%, 100% 0);
 }
 
-/* Card ability icons and crowns container */
+/* Card ability icons and crowns container - old rule updated to match card-v2 */
 .card-ability-container {
   position: absolute;
-  top: 2px;
-  right: 5px;
+  top: 4px; /* Match card-v2 positioning */
+  right: 4px;
   display: flex;
   flex-direction: row;
   align-items: flex-start;
@@ -847,18 +1169,8 @@ body {
   grid-column: 2; /* Right column */
 }
 
-.cost-token.pearl {
-  background: linear-gradient(180deg, #ffffff 0%, #ffe4e1 50%, #ffb6c1 100%);
-  border: 2px solid #ff69b4;
-  border-radius: 50%;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
+/* Old pearl token style - REMOVED to prevent conflicts with card-v2 pearls */
+/* .cost-token.pearl style removed - now handled by .card-v2 specific rules */
 
 .cost-token {
   width: 18px;
@@ -1569,34 +1881,62 @@ button.action-trigger {
 
 /* Modal Styles */
 .modal-overlay {
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.6);
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
   display: none;
   align-items: center;
   justify-content: center;
   z-index: 120;
 }
 
+/* Card detail popover fills the pyramid container */
+.modal-overlay.card-modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .modal-content {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  max-width: 90%;
-  max-height: 90%;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-  overflow: auto;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  box-shadow: none;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
+.modal-content.card-detail-content {
+  background: transparent;
+  padding: 0;
+  justify-content: stretch;
+  align-items: stretch;
+  overflow: hidden;
+}
+
 .modal-body {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Disable hover effects on cards inside popovers */
+.modal-overlay .card,
+.modal-overlay .card:hover {
+  transform: none !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
 }
 
 .modal-header {
@@ -1813,6 +2153,14 @@ button.action-trigger {
   background: rgba(44, 62, 80, 0.1);
 }
 
+.color-card-empty {
+  background: transparent !important;
+  border: 2px dashed #ccc !important;
+}
+
+.color-card-empty .power-circle {
+  opacity: 0.5;
+}
 
 .token-dot {
   width: 7px;
@@ -2468,5 +2816,47 @@ button.action-trigger {
 
 .pyramid-info-corner .privilege-scroll-emoji {
   font-size: 1.6em;
+}
+
+.action-button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.buy-button {
+  background-color: #4a90e2;
+  color: white;
+}
+
+.buy-button:hover {
+  background-color: #357abd;
+}
+
+.reserve-button {
+  background-color: #7ed321;
+  color: white;
+}
+
+.reserve-button:hover {
+  background-color: #6bbf0f;
+}
+
+.cancel-button {
+  background-color: #999;
+  color: white;
+}
+
+.cancel-button:hover {
+  background-color: #777;
+}
+
+.large-card {
+  transform: scale(2);
+  transform-origin: center;
 }
 

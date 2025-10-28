@@ -3,6 +3,67 @@ import "./style.css";
 let allCards = [];
 let pyramidCards = { level1: [], level2: [], level3: [] };
 
+// Game state structure
+const gameState = {
+  decks: {
+    level1: [],
+    level2: [],
+    level3: []
+  },
+  initialDeckSizes: {
+    level1: 0,
+    level2: 0,
+    level3: 0
+  },
+  pyramid: {
+    level1: [],
+    level2: [],
+    level3: []
+  },
+  bag: {
+    blue: 4,
+    white: 4,
+    green: 4,
+    black: 4,
+    red: 4,
+    pearl: 2,
+    gold: 3
+  },
+  board: Array(5).fill(null).map(() => Array(5).fill(null)),
+  royalCards: [],
+  players: {
+    player1: {
+      tokens: {
+        blue: 0,
+        white: 0,
+        green: 0,
+        black: 0,
+        red: 0,
+        pearl: 0,
+        gold: 0
+      },
+      cards: [],
+      reserves: [],
+      privileges: 0
+    },
+    player2: {
+      tokens: {
+        blue: 0,
+        white: 0,
+        green: 0,
+        black: 0,
+        red: 0,
+        pearl: 0,
+        gold: 0
+      },
+      cards: [],
+      reserves: [],
+      privileges: 0
+    }
+  },
+  currentPlayer: 1
+};
+
 const parseCSV = (csvText) => {
   const lines = csvText.trim().split('\n');
   const headers = lines[0].split(',').map(h => h.trim());
@@ -22,26 +83,155 @@ const loadCards = async () => {
     const response = await fetch('/splendor_cards.csv');
     const csvText = await response.text();
     allCards = parseCSV(csvText);
-    
-    // Separate cards by level
-    const byLevel = { 1: [], 2: [], 3: [] };
-    allCards.forEach(card => {
-      byLevel[card.level].push(card);
-    });
-    
-    // Randomly select cards for pyramid
-    const shuffle = (array) => [...array].sort(() => Math.random() - 0.5);
-    
-    pyramidCards.level1 = shuffle(byLevel[1]).slice(0, 3);
-    pyramidCards.level2 = shuffle(byLevel[2]).slice(0, 4);
-    pyramidCards.level3 = shuffle(byLevel[3]).slice(0, 5);
   } catch (error) {
     console.error('Failed to load cards:', error);
     // Fallback to empty arrays if CSV can't be loaded
   }
 };
 
+const shuffle = (array) => [...array].sort(() => Math.random() - 0.5);
+
+const initializeDecks = () => {
+  // Separate loaded cards by level
+  const byLevel = { 1: [], 2: [], 3: [] };
+  allCards.forEach(card => {
+    byLevel[card.level].push(card);
+  });
+  
+  // Shuffle each deck
+  gameState.decks.level1 = shuffle(byLevel[1]);
+  gameState.decks.level2 = shuffle(byLevel[2]);
+  gameState.decks.level3 = shuffle(byLevel[3]);
+};
+
+const initializeRoyalCards = () => {
+  // The 4 royal cards as specified
+  gameState.royalCards = [
+    { id: 'royal-1', points: 3, ability: 'scroll', taken: false },
+    { id: 'royal-2', points: 3, ability: 'steal', taken: false },
+    { id: 'royal-3', points: 3, ability: 'token', taken: false },
+    { id: 'royal-4', points: 2, ability: 'again', taken: false }
+  ];
+};
+
+const initializePyramid = () => {
+  // Deal visible cards to pyramid
+  // Level 1 (top row): 3 cards
+  // Level 2 (middle row): 4 cards
+  // Level 3 (bottom row): 5 cards
+  gameState.pyramid.level1 = gameState.decks.level1.splice(0, 3);
+  gameState.pyramid.level2 = gameState.decks.level2.splice(0, 4);
+  gameState.pyramid.level3 = gameState.decks.level3.splice(0, 5);
+  
+  // Record the initial deck sizes after dealing to pyramid
+  gameState.initialDeckSizes.level1 = gameState.decks.level1.length;
+  gameState.initialDeckSizes.level2 = gameState.decks.level2.length;
+  gameState.initialDeckSizes.level3 = gameState.decks.level3.length;
+};
+
+const getSpiralOrder = (size) => {
+  // Calculate spiral order for a size×size grid
+  // Starting at center and spiraling outward in clockwise direction
+  const order = [];
+  const center = Math.floor(size / 2);
+  let direction = 'right'; // Start going right from center
+  let steps = 1;
+  let currentSteps = 0;
+  let timesUsedDirection = 0;
+  
+  let row = center;
+  let col = center;
+  
+  // Add center first
+  order.push([row, col]);
+  
+  // Spiral outward
+  for (let i = 1; i < size * size; i++) {
+    // Move in current direction
+    if (direction === 'right') col++;
+    else if (direction === 'down') row++;
+    else if (direction === 'left') col--;
+    else if (direction === 'up') row--;
+    
+    order.push([row, col]);
+    currentSteps++;
+    
+    // Check if we've used this direction the appropriate number of times
+    if (currentSteps === steps) {
+      currentSteps = 0;
+      timesUsedDirection++;
+      
+      // Change direction (right → down → left → up → right)
+      if (direction === 'right') direction = 'down';
+      else if (direction === 'down') direction = 'left';
+      else if (direction === 'left') direction = 'up';
+      else if (direction === 'up') direction = 'right';
+      
+      // Increase step count every other direction change
+      if (timesUsedDirection === 2) {
+        steps++;
+        timesUsedDirection = 0;
+      }
+    }
+  }
+  
+  return order;
+};
+
+const placeTokensOnBoard = () => {
+  // Build flat array of all tokens
+  const tokens = [];
+  
+  // Add gem colors (4 each)
+  const gemColors = ['blue', 'white', 'green', 'black', 'red'];
+  gemColors.forEach(color => {
+    for (let i = 0; i < 4; i++) {
+      tokens.push(color);
+    }
+  });
+  
+  // Add pearls (2)
+  tokens.push('pearl', 'pearl');
+  
+  // Add gold (3)
+  tokens.push('gold', 'gold', 'gold');
+  
+  // Shuffle tokens
+  const shuffled = shuffle(tokens);
+  
+  // Place on board following spiral pattern
+  const spiralOrder = getSpiralOrder(5);
+  shuffled.forEach((token, index) => {
+    if (index < 25) {
+      const [row, col] = spiralOrder[index];
+      gameState.board[row][col] = token;
+    }
+  });
+};
+
+const initializeGame = async () => {
+  // Load cards from CSV first
+  await loadCards();
+  
+  // Initialize game components
+  initializeDecks();
+  initializeRoyalCards();
+  initializePyramid();
+  placeTokensOnBoard();
+  
+  // Randomly choose first player (player 2 gets 1 privilege)
+  gameState.currentPlayer = Math.random() < 0.5 ? 1 : 2;
+  if (gameState.currentPlayer === 1) {
+    gameState.players.player2.privileges = 1;
+  } else {
+    gameState.players.player1.privileges = 1;
+  }
+};
+
+let cardIdCounter = 0;
+
 const createCard = (data) => ({
+  id: `card-${cardIdCounter++}`,
   level: parseInt(data.level),
   color: data.color,
   points: parseInt(data.points) || 0,
@@ -91,33 +281,38 @@ const generateCrownIcon = (size = 20) => {
   </svg>`;
 };
 
+let pearlIdCounter = 0;
+
 const generatePearlIcon = (size = 24) => {
+  const gradientId = `pearlGradient${pearlIdCounter++}`;
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" role="img" aria-label="pearl">
     <defs>
-      <radialGradient id="pearlGradient" cx="35%" cy="30%" r="65%">
+      <radialGradient id="${gradientId}" cx="35%" cy="30%" r="65%">
         <stop offset="0%" stop-color="#ffffff"/>
         <stop offset="45%" stop-color="#ffe6f0"/>
         <stop offset="75%" stop-color="#f6d1e8"/>
         <stop offset="100%" stop-color="#d7a8d6"/>
       </radialGradient>
     </defs>
-    <circle cx="12" cy="12" r="9" fill="url(#pearlGradient)" stroke="#c9a5c9" stroke-width="1"/>
-    <circle cx="9" cy="9" r="4" fill="rgba(255, 255, 255, 0.7)"/>
+    <circle cx="12" cy="12" r="9" fill="url(#${gradientId})" stroke="#d7a8d6" stroke-width="0.3"/>
   </svg>`;
 };
 
+let goldIdCounter = 0;
+
 const generateGoldIcon = (size = 24) => {
+  const gradientId = `goldGradient${goldIdCounter++}`;
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" role="img" aria-label="gold coin">
     <defs>
-      <radialGradient id="goldGradient" cx="40%" cy="30%" r="70%">
+      <radialGradient id="${gradientId}" cx="40%" cy="30%" r="70%">
         <stop offset="0%" stop-color="#fff6a3"/>
         <stop offset="40%" stop-color="#ffd85c"/>
         <stop offset="70%" stop-color="#f4b41a"/>
         <stop offset="100%" stop-color="#c78100"/>
       </radialGradient>
     </defs>
-    <circle cx="12" cy="12" r="9" fill="url(#goldGradient)" stroke="#a86b00" stroke-width="1.2"/>
-    <circle cx="12" cy="12" r="6" fill="none" stroke="#b97800" stroke-width="1"/>
+    <circle cx="12" cy="12" r="9" fill="url(#${gradientId})" stroke="#a86b00" stroke-width="1.2"/>
+    <circle cx="12" cy="12" r="6" fill="none" stroke="#c78100" stroke-width="0.8"/>
   </svg>`;
 };
 
@@ -204,10 +399,115 @@ const generateCostDisplay = (costs) => {
     .map(({ cost, class: className }) => {
       const [color, amount] = cost;
       if (color === 'pearl') {
-        return `<div class="cost-item pearl ${className}"><div class="cost-token pearl"></div></div>`;
+        // Generate pearl without fixed size so CSS can control it
+        const pearlSvg = generatePearlIcon(24).replace(/width="\d+"/, '').replace(/height="\d+"/, '');
+        return `<div class="cost-item pearl ${className}"><div class="cost-token pearl">${pearlSvg}</div></div>`;
       }
       return `<div class="cost-item ${color} ${className}"><div class="cost-token"><span class="cost-number">${amount}</span></div></div>`;
     }).join('');
+};
+
+const renderCardV2 = (card, levelClass) => {
+  const hasColor = card.color && card.color !== 'none';
+  const isWild = card.color === 'wild';
+  const isGrey = card.color === 'none';
+  
+  // Determine stripe classes
+  let stripeClass = '';
+  if (isWild || isGrey) {
+    stripeClass = isGrey ? 'grey-card' : 'wild-card';
+  } else if (hasColor) {
+    stripeClass = `colored-card ${getColorClass(card.color)}`;
+  }
+  
+  // Build card HTML with data attributes for tracking - using card-v2 class
+  let cardHTML = `<div class="card card-v2 ${levelClass}" data-clickable="card" data-popover="card-detail-popover" data-card-level="${card.level}" data-card-index="${card._pyramidIndex ?? ''}" data-card-id="${card.id ?? ''}">`;
+  
+  // Render base first (stripes in background)
+  // Top stripe (thick)
+  if (hasColor && !isWild) {
+    cardHTML += `<div class="card-stripe-top ${getColorClass(card.color)}" style="background-color: ${getColorValue(card.color)}"></div>`;
+  } else if (isWild || isGrey) {
+    const stripeColor = isGrey ? '#000' : '#999';
+    cardHTML += `<div class="card-stripe-top grey" style="background-color: ${stripeColor}"></div>`;
+  }
+  
+  // Bottom stripe (thin)
+  if (hasColor && !isWild) {
+    cardHTML += `<div class="card-stripe-bottom ${getColorClass(card.color)}" style="background-color: ${getColorValue(card.color)}"></div>`;
+  } else if (isWild || isGrey) {
+    const stripeColor = isGrey ? '#000' : '#999';
+    cardHTML += `<div class="card-stripe-bottom grey" style="background-color: ${stripeColor}"></div>`;
+  }
+  
+  // Card header (no level display)
+  cardHTML += '<div class="card-header">';
+  cardHTML += '</div>';
+  
+  // Upper left section: color circle/triangle, points
+  if (hasColor && !isWild) {
+    const pointsDisplay = card.points > 0 ? `<div class="prestige-points">${card.points}</div>` : '';
+    cardHTML += `<div class="color-circle ${getColorClass(card.color)}">${pointsDisplay}</div>`;
+  } else if (isGrey && card.points > 0) {
+    cardHTML += '<div class="points-corner"></div>';
+    cardHTML += `<div class="prestige-points">${card.points}</div>`;
+  } else if (isWild && card.points > 0) {
+    // Wild cards need points display without color circle
+    cardHTML += `<div class="prestige-points wild-points">${card.points}</div>`;
+  }
+  
+  // Upper right section: ability icons and crowns
+  if (card.ability || card.isDouble || card.crowns > 0) {
+    cardHTML += '<div class="card-ability-container">';
+    
+    // Render crowns with special layout
+    if (card.crowns > 0) {
+      const crownSize = 16; // Slightly smaller than color circle to fit multiple
+      if (card.crowns === 1) {
+        cardHTML += `<div class="card-crowns crown-single">${generateCrownIcon(crownSize)}</div>`;
+      } else if (card.crowns === 2) {
+        // Stack vertically
+        cardHTML += `<div class="card-crowns crown-stack">${generateCrownIcon(crownSize)}${generateCrownIcon(crownSize)}</div>`;
+      } else if (card.crowns === 3) {
+        // Form L-shape: top row has 2, bottom row has 1 on right
+        cardHTML += `<div class="card-crowns crown-grid">
+          ${generateCrownIcon(crownSize)}${generateCrownIcon(crownSize)}
+          <span></span>${generateCrownIcon(crownSize)}
+        </div>`;
+      }
+    }
+    
+    // Render ability icons (non-crown)
+    if (card.ability || card.isDouble) {
+      cardHTML += '<span class="card-ability">';
+      cardHTML += generateAbilityIcon(card);
+      cardHTML += '</span>';
+    }
+    cardHTML += '</div>';
+  }
+  
+  // Costs at bottom
+  cardHTML += '<div class="card-costs">';
+  cardHTML += generateCostDisplay(card.costs);
+  cardHTML += '</div>';
+  
+  // Wild icon for wild cards - centered above costs
+  if (isWild) {
+    cardHTML += '<div class="wild-icon-positioned">';
+    cardHTML += '<svg viewBox="0 0 24 24" width="28" height="28" style="fill: #666;">';
+    cardHTML += '<polygon points="12,12 12,2 21.6,8.6" fill="#2c3e50"/>';
+    cardHTML += '<polygon points="12,12 21.6,8.6 18.1,20.3" fill="#f0f0f0" stroke="#ccc"/>';
+    cardHTML += '<polygon points="12,12 18.1,20.3 5.9,20.3" fill="#e74c3c"/>';
+    cardHTML += '<polygon points="12,12 5.9,20.3 2.4,8.6" fill="#7ed321"/>';
+    cardHTML += '<polygon points="12,12 2.4,8.6 12,2" fill="#4a90e2"/>';
+    cardHTML += '<polygon points="12,2 21.6,8.6 18.1,20.3 5.9,20.3 2.4,8.6" fill="none" stroke="#333" stroke-width="0.6"/>';
+    cardHTML += '</svg>';
+    cardHTML += '</div>';
+  }
+  
+  cardHTML += '</div>';
+  
+  return cardHTML;
 };
 
 const renderCard = (card, levelClass) => {
@@ -223,8 +523,8 @@ const renderCard = (card, levelClass) => {
     stripeClass = `colored-card ${getColorClass(card.color)}`;
   }
   
-  // Build card HTML
-  let cardHTML = `<div class="card ${levelClass}" data-clickable="card" data-popover="card-detail-popover">`;
+  // Build card HTML with data attributes for tracking
+  let cardHTML = `<div class="card ${levelClass}" data-clickable="card" data-popover="card-detail-popover" data-card-level="${card.level}" data-card-index="${card._pyramidIndex || ''}" data-card-id="${card.id || ''}">`;
   
   // Render base first (stripes in background)
   // Top stripe (thick)
@@ -310,29 +610,158 @@ const renderCard = (card, levelClass) => {
   return cardHTML;
 };
 
+const getDeckTotal = (level) => {
+  // Return total number of cards in this level
+  // Level 1: 13 cards, Level 2: 24 cards, Level 3: 30 cards
+  const totals = { 1: 13, 2: 24, 3: 30 };
+  return totals[level] || 0;
+};
+
+const getDeckMeterHeight = (level) => {
+  const deck = gameState.decks[`level${level}`];
+  const initialSize = gameState.initialDeckSizes[`level${level}`];
+  const remaining = deck.length;
+  const percentage = initialSize > 0 ? (remaining / initialSize) * 100 : 0;
+  return Math.max(0, Math.min(100, percentage));
+};
+
+const generateTokenBoard = () => {
+  let html = '<div class="token-spaces">';
+  
+  // Flatten the 5x5 board for rendering (row by row)
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 5; col++) {
+      const token = gameState.board[row][col];
+      const tokenClass = token ? `token-${token}` : '';
+      html += `<div class="token-space">${token ? `<div class="token ${tokenClass}"></div>` : ''}</div>`;
+    }
+  }
+  
+  html += '</div>';
+  return html;
+};
+
+const getPlayerCards = (playerId) => {
+  const player = gameState.players[playerId];
+  // Count cards by color
+  const cards = {
+    blue: 0,
+    white: 0,
+    green: 0,
+    black: 0,
+    red: 0,
+    wild: 0
+  };
+  const points = { blue: 0, white: 0, green: 0, black: 0, red: 0, wild: 0 };
+  
+  player.cards.forEach(card => {
+    cards[card.color] = (cards[card.color] || 0) + 1;
+    points[card.color] = (points[card.color] || 0) + card.points;
+  });
+  
+  return { cards, points };
+};
+
+const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
+  const colorClasses = {
+    blue: 'blue',
+    white: 'white',
+    green: 'green',
+    black: 'black',
+    red: 'red'
+  };
+  
+  // Only show token dots if we have tokens
+  let dotsHTML = '';
+  if (tokenCount > 0) {
+    const dots = [];
+    for (let i = 0; i < tokenCount; i++) {
+      dots.push(`<span class="token-dot ${colorClasses[color]}"></span>`);
+    }
+    dotsHTML = `<div class="token-dots">${dots.join('')}</div>`;
+  }
+  
+  // Show dotted border when no cards
+  const emptyStyle = cardCount === 0 ? 'style="border: 2px dashed #ccc; background: transparent;"' : '';
+  
+  let iconHTML = '';
+  if (color === 'black' && cardCount > 0) {
+    iconHTML = `
+      <div class="wild-token-icon">
+        <svg viewBox="0 0 32 32" width="32" height="32">
+          <polygon points="16,16 16,2 29.3,11.7" fill="#2c3e50"/>
+          <polygon points="16,16 29.3,11.7 24.2,27.3" fill="#f0f0f0" stroke="#ccc"/>
+          <polygon points="16,16 24.2,27.3 7.8,27.3" fill="#e74c3c"/>
+          <polygon points="16,16 7.8,27.3 2.7,11.7" fill="#7ed321"/>
+          <polygon points="16,16 2.7,11.7 16,2" fill="#4a90e2"/>
+          <polygon points="16,2 29.3,11.7 24.2,27.3 7.8,27.3 2.7,11.7" fill="none" stroke="#333" stroke-width="0.8"/>
+        </svg>
+      </div>
+    `;
+  }
+  
+  const emptyClass = cardCount === 0 ? 'color-card-empty' : '';
+  
+  return `
+    <div class="color-card ${color} ${emptyClass}" ${emptyStyle}>
+      ${dotsHTML}
+      ${iconHTML}
+      <div class="power-circle ${color}">${cardCount}</div>
+      <div class="points-value">${points} pts</div>
+    </div>
+  `;
+};
+
+const renderPlayerHand = (playerId) => {
+  const { cards, points } = getPlayerCards(playerId);
+  const player = gameState.players[playerId];
+  const colors = ['blue', 'white', 'green', 'red', 'black'];
+  
+  let html = '<div class="color-cards-row">';
+  
+  colors.forEach(color => {
+    const cardCount = cards[color] || 0;
+    const tokenCount = player.tokens[color] || 0;
+    html += renderPlayerColorCard(color, cardCount, tokenCount, points[color] || 0);
+  });
+  
+  // Add reserved cards section
+  const reserveCount = gameState.players[playerId].reserves.length;
+  html += `
+    <div class="reserved-section" id="show-reserved" data-clickable="popover" data-popover="reserved-modal">
+      <div class="reserved-count">${reserveCount}</div>
+      <div class="reserved-label">Reserved</div>
+    </div>
+  `;
+  
+  html += '</div>';
+  return html;
+};
+
 const generateResourceSummary = () => {
+  const currentPlayer = gameState.players.player1; // For now, always player 1
   return `
     <div class="resource-summary">
       <div class="resource-summary-item">
-        <span class="token-mini blue"></span><span>2</span>
+        <span class="token-mini blue"></span><span>${currentPlayer.tokens.blue}</span>
       </div>
       <div class="resource-summary-item">
-        <span class="token-mini white"></span><span>1</span>
+        <span class="token-mini white"></span><span>${currentPlayer.tokens.white}</span>
       </div>
       <div class="resource-summary-item">
-        <span class="token-mini green"></span><span>0</span>
+        <span class="token-mini green"></span><span>${currentPlayer.tokens.green}</span>
       </div>
       <div class="resource-summary-item">
-        <span class="token-mini black"></span><span>1</span>
+        <span class="token-mini black"></span><span>${currentPlayer.tokens.black}</span>
       </div>
       <div class="resource-summary-item">
-        <span class="token-mini red"></span><span>0</span>
+        <span class="token-mini red"></span><span>${currentPlayer.tokens.red}</span>
       </div>
       <div class="resource-summary-item">
-        <span class="token-mini gold"></span><span>0</span>
+        <span class="token-mini gold"></span><span>${currentPlayer.tokens.gold}</span>
       </div>
       <div class="resource-summary-item">
-        <span class="token-mini pearl"></span><span>0</span>
+        <span class="token-mini pearl"></span><span>${currentPlayer.tokens.pearl}</span>
       </div>
     </div>
   `;
@@ -345,33 +774,7 @@ const generateGameLayout = () => {
       <div class="top-bar">
         <div class="token-board-container" id="token-board-top">
           <div class="token-board" data-clickable="popover" data-popover="token-selection-modal">
-            <div class="token-spaces">
-              <div class="token-space"><div class="token token-blue"></div></div>
-              <div class="token-space"><div class="token token-white"></div></div>
-              <div class="token-space"><div class="token token-green"></div></div>
-              <div class="token-space"><div class="token token-black"></div></div>
-              <div class="token-space"><div class="token token-red"></div></div>
-              <div class="token-space"><div class="token token-pearl"></div></div>
-              <div class="token-space"><div class="token token-blue"></div></div>
-              <div class="token-space"><div class="token token-white"></div></div>
-              <div class="token-space"><div class="token token-green"></div></div>
-              <div class="token-space"><div class="token token-black"></div></div>
-              <div class="token-space"><div class="token token-red"></div></div>
-              <div class="token-space"><div class="token token-gold"></div></div>
-              <div class="token-space"><div class="token token-blue"></div></div>
-              <div class="token-space"><div class="token token-white"></div></div>
-              <div class="token-space"><div class="token token-green"></div></div>
-              <div class="token-space"><div class="token token-black"></div></div>
-              <div class="token-space"><div class="token token-red"></div></div>
-              <div class="token-space"><div class="token token-pearl"></div></div>
-              <div class="token-space"><div class="token token-blue"></div></div>
-              <div class="token-space"><div class="token token-white"></div></div>
-              <div class="token-space"><div class="token token-green"></div></div>
-              <div class="token-space"><div class="token token-black"></div></div>
-              <div class="token-space"><div class="token token-red"></div></div>
-              <div class="token-space"><div class="token token-gold"></div></div>
-              <div class="token-space"><div class="token token-blue"></div></div>
-            </div>
+            ${generateTokenBoard()}
           </div>
         </div>
         <div class="opponent-stats-container" id="opponent-stats" data-clickable="popover" data-popover="opponent-hand-modal">
@@ -569,19 +972,6 @@ const generateGameLayout = () => {
         </div>
       </div>
 
-      <!-- Card Detail Popover -->
-      <div class="modal-overlay" id="card-detail-popover" style="display: none;">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Card Details</h3>
-            <button class="close-modal" onclick="closePopover('card-detail-popover')">×</button>
-          </div>
-          <div class="modal-body">
-            <!-- Content will go here -->
-          </div>
-        </div>
-      </div>
-
       <!-- Token Selection Modal -->
       <div class="modal-overlay" id="token-selection-modal" style="display: none;">
         <div class="modal-content">
@@ -597,14 +987,26 @@ const generateGameLayout = () => {
 
       <!-- Main Pyramid Area -->
       <div class="pyramid-container">
+          <!-- Card Detail Popover -->
+          <div class="modal-overlay card-modal-overlay" id="card-detail-popover" style="display: none;">
+            <div class="modal-content card-detail-content">
+              <div class="modal-body">
+                <!-- Content will go here -->
+              </div>
+            </div>
+          </div>
+          
           <div class="card-pyramid">
             <div class="pyramid-row">
               <div class="deck-meter-container">
                 <div class="deck-meter">
-                  <div class="meter-fill level-1" style="height: 85%"></div>
+                  <div class="meter-fill level-1" style="height: ${getDeckMeterHeight(1)}%"></div>
                 </div>
               </div>
-              ${pyramidCards.level1.map(card => renderCard(card, 'level-1-card')).join('')}
+              ${gameState.pyramid.level1.map((card, idx) => {
+                card._pyramidIndex = idx;
+                return renderCardV2(card, 'level-1-card');
+              }).join('')}
               <div class="card-spacer"></div>
               <div class="card-spacer"></div>
               <div class="royal-cards-summary card-shaped" id="royal-cards-trigger" data-clickable="popover" data-popover="royal-modal">
@@ -616,19 +1018,25 @@ const generateGameLayout = () => {
             <div class="pyramid-row">
               <div class="deck-meter-container">
                 <div class="deck-meter">
-                  <div class="meter-fill level-2" style="height: 72%"></div>
+                  <div class="meter-fill level-2" style="height: ${getDeckMeterHeight(2)}%"></div>
                 </div>
               </div>
-              ${pyramidCards.level2.map(card => renderCard(card, 'level-2-card')).join('')}
+              ${gameState.pyramid.level2.map((card, idx) => {
+                card._pyramidIndex = idx;
+                return renderCardV2(card, 'level-2-card');
+              }).join('')}
             </div>
 
             <div class="pyramid-row">
               <div class="deck-meter-container">
                 <div class="deck-meter">
-                  <div class="meter-fill level-3" style="height: 58%"></div>
+                  <div class="meter-fill level-3" style="height: ${getDeckMeterHeight(3)}%"></div>
                 </div>
               </div>
-              ${pyramidCards.level3.map(card => renderCard(card, 'level-3-card')).join('')}
+              ${gameState.pyramid.level3.map((card, idx) => {
+                card._pyramidIndex = idx;
+                return renderCardV2(card, 'level-3-card');
+              }).join('')}
               <div class="card-spacer"></div>
               <div class="card-spacer"></div>
             </div>
@@ -673,81 +1081,25 @@ const generateGameLayout = () => {
 
       <!-- Global Hand Display (always at bottom) -->
       <div class="global-hand-display" id="player-hand">
-        <div class="color-cards-row">
-          <div class="color-card blue">
-            <div class="token-dots">
-              <span class="token-dot blue"></span>
-              <span class="token-dot blue"></span>
-            </div>
-            <div class="power-circle blue">3</div>
-            <div class="points-value">3 pts</div>
-          </div>
-          
-          <div class="color-card white">
-            <div class="token-dots">
-              <span class="token-dot white"></span>
-            </div>
-            <div class="power-circle white">1</div>
-            <div class="points-value">0 pts</div>
-          </div>
-          
-          <div class="color-card green">
-            <div class="token-dots">
-            </div>
-            <div class="power-circle green">2</div>
-            <div class="points-value">5 pts</div>
-          </div>
-          
-          <div class="color-card red">
-            <div class="token-dots">
-              <span class="token-dot red"></span>
-              <span class="token-dot red"></span>
-              <span class="token-dot red"></span>
-              <span class="token-dot red"></span>
-            </div>
-            <div class="power-circle red">0</div>
-            <div class="points-value">0 pts</div>
-          </div>
-          
-          <div class="color-card black">
-            <div class="wild-token-icon">
-              <svg viewBox="0 0 32 32" width="32" height="32">
-                <!-- Black section (top) -->
-                <polygon points="16,16 16,2 29.3,11.7" fill="#2c3e50"/>
-                
-                <!-- White section (top-right) -->
-                <polygon points="16,16 29.3,11.7 24.2,27.3" fill="#f0f0f0" stroke="#ccc"/>
-                
-                <!-- Red section (bottom-right) -->
-                <polygon points="16,16 24.2,27.3 7.8,27.3" fill="#e74c3c"/>
-                
-                <!-- Green section (bottom-left) -->
-                <polygon points="16,16 7.8,27.3 2.7,11.7" fill="#7ed321"/>
-                
-                <!-- Blue section (top-left) -->
-                <polygon points="16,16 2.7,11.7 16,2" fill="#4a90e2"/>
-                
-                <polygon points="16,2 29.3,11.7 24.2,27.3 7.8,27.3 2.7,11.7" fill="none" stroke="#333" stroke-width="0.8"/>
-              </svg>
-            </div>
-            <div class="power-circle black">1</div>
-            <div class="points-value">2 pts</div>
-          </div>
-          
-          <div class="reserved-section" id="show-reserved" data-clickable="popover" data-popover="reserved-modal">
-            <div class="reserved-count">1</div>
-            <div class="reserved-label">Reserved</div>
-          </div>
-        </div>
+        ${renderPlayerHand('player1')}
       </div>
   </div>
   `;
 };
 
+// Track selected card
+let selectedCard = null;
+let selectedCardElement = null;
+
 // Popover management functions
-const openPopover = (id) => {
+const openPopover = (id, cardData = null, cardElement = null) => {
   const popover = document.getElementById(id);
   if (popover) {
+    if (id === 'card-detail-popover' && cardData) {
+      selectedCard = cardData;
+      selectedCardElement = cardElement;
+      populateCardDetailPopover(cardData);
+    }
     popover.style.display = "flex";
   }
 };
@@ -757,7 +1109,92 @@ const closePopover = (id) => {
   if (popover) {
     popover.style.display = "none";
   }
+  if (id === 'card-detail-popover') {
+    selectedCard = null;
+    selectedCardElement = null;
+  }
 };
+
+const populateCardDetailPopover = (card) => {
+  const modalBody = document.querySelector('#card-detail-popover .modal-body');
+  if (!modalBody) return;
+  
+  // Render using card-v2 with large class for 3x scale
+  const levelClass = `level-${card.level}-card`;
+  const cardHTML = renderCardV2(card, levelClass).replace('card-v2', 'card-v2 large');
+  
+  modalBody.innerHTML = `
+    <div style="display: flex; flex-direction: row; align-items: flex-start; gap: 30px; padding: 20px; justify-content: center; height: 100%;">
+      <div style="display: flex; justify-content: center; align-items: center;">
+        ${cardHTML}
+      </div>
+      <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; padding-top: 20px; padding-bottom: 20px;">
+        <div style="display: flex; flex-direction: column; gap: 15px;">
+          <button onclick="buySelectedCard()" class="action-button buy-button">Buy</button>
+          <button onclick="reserveSelectedCard()" class="action-button reserve-button">Reserve</button>
+        </div>
+        <div style="display: flex; justify-content: center;">
+          <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+const buySelectedCard = () => {
+  if (!selectedCard) return;
+  
+  const level = selectedCard.level;
+  const levelKey = `level${level}`;
+  const index = selectedCard._pyramidIndex;
+  
+  // Add card to player's collection
+  gameState.players.player1.cards.push(selectedCard);
+  
+  // Remove from pyramid
+  gameState.pyramid[levelKey].splice(index, 1);
+  
+  // Draw new card from deck if available
+  if (gameState.decks[levelKey].length > 0) {
+    gameState.pyramid[levelKey].splice(index, 0, gameState.decks[levelKey].shift());
+  }
+  
+  // Re-render the game
+  renderGame();
+  
+  // Close popover
+  closePopover('card-detail-popover');
+};
+
+const reserveSelectedCard = () => {
+  if (!selectedCard) return;
+  
+  const level = selectedCard.level;
+  const levelKey = `level${level}`;
+  const index = selectedCard._pyramidIndex;
+  
+  // Add to player reserves
+  gameState.players.player1.reserves.push(selectedCard);
+  
+  // Remove from pyramid
+  gameState.pyramid[levelKey].splice(index, 1);
+  
+  // Draw new card from deck if available
+  if (gameState.decks[levelKey].length > 0) {
+    gameState.pyramid[levelKey].splice(index, 0, gameState.decks[levelKey].shift());
+  }
+  
+  // Re-render the game
+  renderGame();
+  
+  // Close popover
+  closePopover('card-detail-popover');
+};
+
+// Expose to global scope for onclick handlers
+window.buySelectedCard = buySelectedCard;
+window.reserveSelectedCard = reserveSelectedCard;
+window.closePopover = closePopover;
 
 // Close any open popover on escape key
 document.addEventListener("keydown", (e) => {
@@ -767,47 +1204,66 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// Wire up all popover triggers (use event delegation)
-document.addEventListener("click", (e) => {
-  const trigger = e.target.closest("[data-clickable]");
-  if (!trigger) return;
 
-  const popoverId = trigger.dataset.popover;
-  if (popoverId) {
-    openPopover(popoverId);
-  }
-});
+// Function to attach popover listeners
+const attachPopoverListeners = () => {
+  // Remove existing listener if any
+  const handlers = document.querySelectorAll('[data-popover-handler]');
+  handlers.forEach(el => el.removeEventListener('click', el._popoverHandler));
+  
+  // Find all card elements
+  document.querySelectorAll('.card[data-clickable="card"]').forEach(cardEl => {
+    cardEl._popoverHandler = (e) => {
+      const level = cardEl.dataset.cardLevel;
+      const index = parseInt(cardEl.dataset.cardIndex, 10);
+      
+      // Find the card in game state
+      const levelKey = `level${level}`;
+      const card = gameState.pyramid[levelKey][index];
+      
+      openPopover('card-detail-popover', card, cardEl);
+    };
+    cardEl.addEventListener('click', cardEl._popoverHandler);
+  });
+};
+
+const renderGame = () => {
+  document.querySelector("#app").innerHTML = generateGameLayout();
+  
+  // Re-attach event listeners
+  setTimeout(() => {
+    attachPopoverListeners();
+  }, 10);
+};
 
 // Initialize the game
 const init = async () => {
-  await loadCards();
-  console.log('Loaded cards:', { total: allCards.length, pyramid: pyramidCards });
+  await initializeGame();
+  
+  console.log('Game state initialized:', {
+    totalCards: allCards.length,
+    pyramid: gameState.pyramid,
+    bag: gameState.bag,
+    boardTokens: gameState.board.flat().filter(t => t !== null).length,
+    royalCards: gameState.royalCards.length,
+    currentPlayer: gameState.currentPlayer
+  });
   
   // Debug: check for cards with pearl costs
   const cardsWithPearls = allCards.filter(card => card.costs.pearl > 0);
-  console.log('Cards with pearl costs:', cardsWithPearls.length, cardsWithPearls);
+  console.log('Cards with pearl costs:', cardsWithPearls.length);
   
   const pyramidCardsWithPearls = 
-    pyramidCards.level1.filter(c => c.costs.pearl > 0).length +
-    pyramidCards.level2.filter(c => c.costs.pearl > 0).length +
-    pyramidCards.level3.filter(c => c.costs.pearl > 0).length;
+    gameState.pyramid.level1.filter(c => c.costs.pearl > 0).length +
+    gameState.pyramid.level2.filter(c => c.costs.pearl > 0).length +
+    gameState.pyramid.level3.filter(c => c.costs.pearl > 0).length;
   console.log('Pyramid cards with pearls:', pyramidCardsWithPearls);
   
-  document.querySelector("#app").innerHTML = generateGameLayout();
+  renderGame();
 };
 
 init();
 
-// Close popovers when clicking outside them (add after DOM is ready)
-setTimeout(() => {
-  document.querySelectorAll(".modal-overlay").forEach(overlay => {
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) {
-        closePopover(overlay.id);
-      }
-    });
-  });
-}, 100);
 
 // Remove global popover close on ESC, it's already handled above
 window.closePopover = closePopover;
