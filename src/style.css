@@ -1262,10 +1262,10 @@ body {
 
 /* Token Board */
 .token-board {
-  background: var(--board-color);
+  background: transparent;
   border-radius: 4px;
   position: relative;
-  border: 1px solid #6b5b3d;
+  border: none;
   max-width: 100%;
 }
 
@@ -1926,10 +1926,29 @@ button.action-trigger {
 
 .modal-body {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* Token modal specific styling */
+#token-selection-modal .modal-body {
+  justify-content: flex-start;
+  padding: 15px 20px 15px 20px;
+  align-items: center;
+  gap: 15px;
+}
+
+#token-selection-modal .token-selection-content {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+#token-selection-modal .token-modal-actions {
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
 }
 
 /* Disable hover effects on cards inside popovers */
@@ -2019,7 +2038,7 @@ button.action-trigger {
 
 /* Global Hand Display - Always at bottom of canvas */
 .global-hand-display {
-  background: white;
+  background: #e8e4f0;
   padding: 10px 12px 12px 12px;
   display: flex;
   flex-direction: column;
@@ -2489,6 +2508,12 @@ button.action-trigger {
 .victory-icon-backdrop.color.red { background: var(--token-red); }
 .victory-icon-backdrop.color.black { background: var(--token-black); }
 
+.victory-icon-backdrop.color.empty {
+  background: transparent !important;
+  border: 2px dashed #999;
+  opacity: 0.5;
+}
+
 .victory-value.overlaid {
   position: relative;
   z-index: 2;
@@ -2858,5 +2883,102 @@ button.action-trigger {
 .large-card {
   transform: scale(2);
   transform-origin: center;
+}
+
+/* Token Selection Modal Styles */
+.token-selection-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  margin: 15px 0;
+  flex: 0 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+.token-board-svg {
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 0;
+}
+
+/* Token click overlays */
+#token-click-overlays {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  height: 220px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.token-overlay {
+  background: transparent;
+  transition: all 0.2s;
+  pointer-events: auto;
+  z-index: 20;
+}
+
+.token-overlay.selected {
+  background: rgba(74, 144, 226, 0.2);
+  box-shadow: inset 0 0 0 2px #4a90e2;
+}
+
+.token-overlay:hover:not(.gold-token):not(.empty):not(.selected) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.token-overlay.gold-token,
+.token-overlay.empty {
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.token-modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 15px;
+  padding: 15px 20px 15px 20px;
+  flex-shrink: 0;
+}
+
+.btn-cancel,
+.btn-confirm {
+  padding: 12px 32px;
+  font-size: 16px;
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel {
+  background-color: #999;
+  color: white;
+}
+
+.btn-cancel:hover {
+  background-color: #777;
+}
+
+.btn-confirm {
+  background-color: #4a90e2;
+  color: white;
+}
+
+.btn-confirm:hover {
+  background-color: #357abd;
+}
+
+.btn-cancel:hover,
+.btn-confirm:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 

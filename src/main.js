@@ -107,10 +107,10 @@ const initializeDecks = () => {
 const initializeRoyalCards = () => {
   // The 4 royal cards as specified
   gameState.royalCards = [
-    { id: 'royal-1', points: 3, ability: 'scroll', taken: false },
-    { id: 'royal-2', points: 3, ability: 'steal', taken: false },
-    { id: 'royal-3', points: 3, ability: 'token', taken: false },
-    { id: 'royal-4', points: 2, ability: 'again', taken: false }
+    { id: 'royal-1', points: 2, ability: 'scroll', taken: false },
+    { id: 'royal-2', points: 2, ability: 'steal', taken: false },
+    { id: 'royal-4', points: 2, ability: 'again', taken: false },
+    { id: 'royal-3', points: 3, ability: null, taken: false },
   ];
 };
 
@@ -284,7 +284,8 @@ const generateCrownIcon = (size = 20) => {
 let pearlIdCounter = 0;
 
 const generatePearlIcon = (size = 24) => {
-  const gradientId = `pearlGradient${pearlIdCounter++}`;
+  const id = pearlIdCounter++;
+  const gradientId = `pearlGradient${id}`;
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" role="img" aria-label="pearl">
     <defs>
       <radialGradient id="${gradientId}" cx="35%" cy="30%" r="65%">
@@ -294,14 +295,73 @@ const generatePearlIcon = (size = 24) => {
         <stop offset="100%" stop-color="#d7a8d6"/>
       </radialGradient>
     </defs>
-    <circle cx="12" cy="12" r="9" fill="url(#${gradientId})" stroke="#d7a8d6" stroke-width="0.3"/>
+    <circle cx="12" cy="12" r="12" fill="url(#${gradientId})" stroke="none"/>
+  </svg>`;
+};
+
+let gemTokenIdCounter = 0;
+
+const generateGemTokenIcon = (color, size = 24) => {
+  const id = gemTokenIdCounter++;
+  const gradientId = `${color}Gradient${id}`;
+  const innerGradientId = `${color}InnerGradient${id}`;
+  
+  const colorConfig = {
+    blue: { 
+      gradient: ['#6bb4ff', '#4a90e2', '#357abd', '#2c5aa0'],
+      stroke: '#1f3f6e',
+      innerGradient: ['#3a6ab8', '#4490d5', '#4f9ee0', '#5aace8']
+    },
+    white: { 
+      gradient: ['#ffffff', '#f5f5f5', '#e5e5e5', '#cccccc'],
+      stroke: '#999999',
+      innerGradient: ['#e8e8e8', '#ebebeb', '#efefef', '#f2f2f2']
+    },
+    green: { 
+      gradient: ['#9ee65b', '#7ed321', '#6bb018', '#5a9f1f'],
+      stroke: '#3d7215',
+      innerGradient: ['#6eb539', '#72ba3f', '#79c148', '#7fc850']
+    },
+    black: { 
+      gradient: ['#4d5a6b', '#2c3e50', '#1f2a36', '#1a1f2e'],
+      stroke: '#0f1419',
+      innerGradient: ['#1f2732', '#202835', '#232a39', '#252d3d']
+    },
+    red: { 
+      gradient: ['#ff6b6b', '#e74c3c', '#c9332a', '#c0392b'],
+      stroke: '#a02824',
+      innerGradient: ['#d14a41', '#d9554c', '#e16057', '#e96b62']
+    }
+  };
+  
+  const config = colorConfig[color] || colorConfig.blue;
+  
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" role="img" aria-label="${color} gem">
+    <defs>
+      <radialGradient id="${gradientId}" cx="40%" cy="30%" r="70%">
+        <stop offset="0%" stop-color="${config.gradient[0]}"/>
+        <stop offset="40%" stop-color="${config.gradient[1]}"/>
+        <stop offset="70%" stop-color="${config.gradient[2]}"/>
+        <stop offset="100%" stop-color="${config.gradient[3]}"/>
+      </radialGradient>
+      <linearGradient id="${innerGradientId}" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${config.innerGradient[0]}"/>
+        <stop offset="40%" stop-color="${config.innerGradient[1]}"/>
+        <stop offset="70%" stop-color="${config.innerGradient[2]}"/>
+        <stop offset="100%" stop-color="${config.innerGradient[3]}"/>
+      </linearGradient>
+    </defs>
+    <circle cx="12" cy="12" r="12" fill="url(#${gradientId})" stroke="${config.stroke}" stroke-width="0.5"/>
+    <circle cx="12" cy="12" r="8" fill="url(#${innerGradientId})" stroke="${config.stroke}" stroke-width="0.5"/>
   </svg>`;
 };
 
 let goldIdCounter = 0;
 
 const generateGoldIcon = (size = 24) => {
-  const gradientId = `goldGradient${goldIdCounter++}`;
+  const id = goldIdCounter++;
+  const gradientId = `goldGradient${id}`;
+  const innerGradientId = `goldInnerGradient${id}`;
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" role="img" aria-label="gold coin">
     <defs>
       <radialGradient id="${gradientId}" cx="40%" cy="30%" r="70%">
@@ -310,9 +370,15 @@ const generateGoldIcon = (size = 24) => {
         <stop offset="70%" stop-color="#f4b41a"/>
         <stop offset="100%" stop-color="#c78100"/>
       </radialGradient>
+      <linearGradient id="${innerGradientId}" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#e09a28"/>
+        <stop offset="40%" stop-color="#e8a53c"/>
+        <stop offset="70%" stop-color="#f0b050"/>
+        <stop offset="100%" stop-color="#f8bb64"/>
+      </linearGradient>
     </defs>
-    <circle cx="12" cy="12" r="9" fill="url(#${gradientId})" stroke="#a86b00" stroke-width="1.2"/>
-    <circle cx="12" cy="12" r="6" fill="none" stroke="#c78100" stroke-width="0.8"/>
+    <circle cx="12" cy="12" r="12" fill="url(#${gradientId})" stroke="#a86b00" stroke-width="0.5"/>
+    <circle cx="12" cy="12" r="8" fill="url(#${innerGradientId})" stroke="#a86b00" stroke-width="0.5"/>
   </svg>`;
 };
 
@@ -625,19 +691,114 @@ const getDeckMeterHeight = (level) => {
   return Math.max(0, Math.min(100, percentage));
 };
 
-const generateTokenBoard = () => {
-  let html = '<div class="token-spaces">';
+const generateTokenBoard = (size = 100) => {
+  // Calculate cell size (relative to board size)
+  const cellSize = size / 5;
+  const strokeWidth = size * 0.006; // Subtle grid lines
+  const borderWidth = size * 0.02; // Border width
+  const marginWidth = size * 0.03; // Margin between grid and border
+  const roundedRadius = size * 0.04; // Rounded corner radius
   
-  // Flatten the 5x5 board for rendering (row by row)
+  let html = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" class="token-board-svg" preserveAspectRatio="none">`;
+  
+  // Outer border with rounded corners (darker frame)
+  html += `<rect x="0" y="0" width="${size}" height="${size}" fill="#8b7765" stroke="#6b5e4a" stroke-width="${borderWidth}" rx="${roundedRadius}" ry="${roundedRadius}"/>`;
+  
+  // Margin area with rounded corners (slightly darker than grid)
+  const marginInnerSize = size - marginWidth * 2;
+  html += `<rect x="${marginWidth}" y="${marginWidth}" width="${marginInnerSize}" height="${marginInnerSize}" fill="#c7b69a" rx="${roundedRadius}" ry="${roundedRadius}"/>`;
+  
+  // Grid area with square corners
+  const gridSize = marginInnerSize;
+  
+  // Add radial gradient definition (centered in upper left quadrant)
+  html += `<defs>
+    <radialGradient id="boardGradient" cx="25%" cy="25%" r="120%">
+      <stop offset="0%" stop-color="#d9cbb3" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#d6c7b0" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#d4c4a8" stop-opacity="0"/>
+    </radialGradient>
+    <style>
+      .token-board-grid { stroke: rgba(139, 119, 101, 0.3); stroke-width: ${strokeWidth}; fill: none; }
+    </style>
+  </defs>`;
+  
+  // Base grid area
+  html += `<rect x="${marginWidth}" y="${marginWidth}" width="${gridSize}" height="${gridSize}" fill="#d4c4a8"/>`;
+  
+  // Radial gradient overlay for depth
+  html += `<rect x="${marginWidth}" y="${marginWidth}" width="${gridSize}" height="${gridSize}" fill="url(#boardGradient)"/>`;
+  
+  // Adjusted cell size for grid within margin
+  const gridCellSize = gridSize / 5;
+  
+  // Horizontal grid lines (within margin area, square corners)
+  for (let i = 1; i < 5; i++) {
+    const y = marginWidth + i * gridCellSize;
+    html += `<line class="token-board-grid" x1="${marginWidth}" y1="${y}" x2="${marginWidth + gridSize}" y2="${y}"/>`;
+  }
+  
+  // Vertical grid lines (within margin area, square corners)
+  for (let i = 1; i < 5; i++) {
+    const x = marginWidth + i * gridCellSize;
+    html += `<line class="token-board-grid" x1="${x}" y1="${marginWidth}" x2="${x}" y2="${marginWidth + gridSize}"/>`;
+  }
+  
+  // Draw tokens
+  const tokenRadius = gridCellSize * 0.35; // Tokens take up about 70% of cell
+  
   for (let row = 0; row < 5; row++) {
     for (let col = 0; col < 5; col++) {
       const token = gameState.board[row][col];
-      const tokenClass = token ? `token-${token}` : '';
-      html += `<div class="token-space">${token ? `<div class="token ${tokenClass}"></div>` : ''}</div>`;
+      const cellX = marginWidth + col * gridCellSize;
+      const cellY = marginWidth + row * gridCellSize;
+      
+      // Check if this token is selected
+      const isSelected = selectedTokens.some(t => t.row === row && t.col === col);
+      
+      // Clickable area for each cell
+      html += `<rect x="${cellX}" y="${cellY}" width="${gridCellSize}" height="${gridCellSize}" fill="transparent" class="token-cell" data-row="${row}" data-col="${col}" style="cursor: ${token && token !== 'gold' ? 'pointer' : 'default'};"/>`;
+      
+      if (!token) continue;
+      
+      const centerX = marginWidth + (col + 0.5) * gridCellSize;
+      const centerY = marginWidth + (row + 0.5) * gridCellSize;
+      
+      // Calculate common dimensions for all token types
+      const adjustedRadius = tokenRadius + strokeWidth;
+      const iconSize = adjustedRadius * 2;
+      const shadowPadding = 4; // Space for CSS drop shadow
+      const foreignObjectSize = iconSize + shadowPadding * 2;
+      
+      // Position foreignObject with extra space for shadows
+      const foreignObjectX = centerX - adjustedRadius - shadowPadding;
+      const foreignObjectY = centerY - adjustedRadius - shadowPadding;
+      
+      // Generate token SVG based on type
+      let tokenSvg;
+      if (token === 'pearl') {
+        tokenSvg = generatePearlIcon(iconSize).replace(/width="\d+"/, `width="${iconSize}"`).replace(/height="\d+"/, `height="${iconSize}"`);
+      } else if (token === 'gold') {
+        tokenSvg = generateGoldIcon(iconSize).replace(/width="\d+"/, `width="${iconSize}"`).replace(/height="\d+"/, `height="${iconSize}"`);
+      } else {
+        tokenSvg = generateGemTokenIcon(token, iconSize).replace(/width="\d+"/, `width="${iconSize}"`).replace(/height="\d+"/, `height="${iconSize}"`);
+      }
+      
+      // Add selection ring if selected
+      let selectionRing = '';
+      if (isSelected && token !== 'gold') {
+        const ringRadius = adjustedRadius + 3;
+        selectionRing = `<circle cx="${centerX}" cy="${centerY}" r="${ringRadius}" fill="none" stroke="#4a90e2" stroke-width="3" opacity="0.8"/>`;
+      }
+      
+      // Wrap in foreignObject with shadow space and CSS drop-shadow filter
+      html += `${selectionRing}<foreignObject x="${foreignObjectX}" y="${foreignObjectY}" width="${foreignObjectSize}" height="${foreignObjectSize}">` +
+        `<div style="width: ${iconSize}px; height: ${iconSize}px; margin: ${shadowPadding}px; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));">${tokenSvg}</div>` +
+        `</foreignObject>`;
     }
   }
   
-  html += '</div>';
+  html += '</svg>';
   return html;
 };
 
@@ -660,6 +821,46 @@ const getPlayerCards = (playerId) => {
   });
   
   return { cards, points };
+};
+
+// Calculate player victory stats
+const getPlayerVictoryStats = (playerId) => {
+  const player = gameState.players[playerId];
+  
+  // Sum all points
+  let totalPoints = 0;
+  // Sum all crowns
+  let totalCrowns = 0;
+  // Points per color
+  const colorPoints = { blue: 0, white: 0, green: 0, red: 0, black: 0 };
+  
+  player.cards.forEach(card => {
+    totalPoints += card.points || 0;
+    totalCrowns += card.crowns || 0;
+    if (card.color && card.color !== 'none' && card.color !== 'wild') {
+      colorPoints[card.color] += card.points || 0;
+    }
+  });
+  
+  // Find color with most points (leftmost if tie)
+  const colorOrder = ['blue', 'white', 'green', 'red', 'black'];
+  let maxPoints = 0;
+  let maxColor = colorOrder[0]; // Default to first color
+  
+  colorOrder.forEach(color => {
+    if (colorPoints[color] > maxPoints) {
+      maxPoints = colorPoints[color];
+      maxColor = color;
+    }
+  });
+  
+  return {
+    totalPoints,
+    totalCrowns,
+    colorPoints,
+    maxColor,
+    maxPoints
+  };
 };
 
 const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
@@ -738,6 +939,14 @@ const renderPlayerHand = (playerId) => {
   return html;
 };
 
+const renderHandDisplay = () => {
+  const playerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const handDisplay = document.getElementById('player-hand');
+  if (handDisplay) {
+    handDisplay.innerHTML = renderPlayerHand(playerId);
+  }
+};
+
 const generateResourceSummary = () => {
   const currentPlayer = gameState.players.player1; // For now, always player 1
   return `
@@ -800,16 +1009,16 @@ const generateGameLayout = () => {
                   <span class="privilege-scroll-emoji">🗞️</span>
                 </div>
               </div>
-              <div class="opponent-hand-header-right">
-                <div class="stat-icon pearl">
-                  ${generatePearlIcon(22)}
-                  <span class="stat-count pearl-count">0</span>
-                </div>
-                <div class="stat-icon gold">
-                  ${generateGoldIcon(22)}
-                  <span class="stat-count gold-count">0</span>
-                </div>
+            <div class="opponent-hand-header-right">
+              <div class="stat-icon pearl">
+                ${generatePearlIcon(22)}
+                <span class="stat-count pearl-count">${gameState.players.player2.tokens.pearl}</span>
               </div>
+              <div class="stat-icon gold">
+                ${generateGoldIcon(22)}
+                <span class="stat-count gold-count">${gameState.players.player2.tokens.gold}</span>
+              </div>
+            </div>
             </div>
           </div>
           <div class="opponent-color-cards-row">
@@ -972,19 +1181,6 @@ const generateGameLayout = () => {
         </div>
       </div>
 
-      <!-- Token Selection Modal -->
-      <div class="modal-overlay" id="token-selection-modal" style="display: none;">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Select Tokens</h3>
-            <button class="close-modal" onclick="closePopover('token-selection-modal')">×</button>
-          </div>
-          <div class="modal-body">
-            <!-- Content will go here -->
-          </div>
-        </div>
-      </div>
-
       <!-- Main Pyramid Area -->
       <div class="pyramid-container">
           <!-- Card Detail Popover -->
@@ -992,6 +1188,22 @@ const generateGameLayout = () => {
             <div class="modal-content card-detail-content">
               <div class="modal-body">
                 <!-- Content will go here -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Token Selection Modal -->
+          <div class="modal-overlay card-modal-overlay" id="token-selection-modal" style="display: none;">
+            <div class="modal-content card-detail-content">
+              <div class="modal-body">
+                <div class="token-selection-content" id="token-board-container">
+                  ${generateTokenBoard(220)}
+                  <div id="token-click-overlays">${generateTokenOverlays()}</div>
+                </div>
+                <div class="token-modal-actions">
+                  <button class="btn-cancel" onclick="closePopover('token-selection-modal')">Cancel</button>
+                  <button class="btn-confirm" onclick="confirmTokenSelection()">Confirm</button>
+                </div>
               </div>
             </div>
           </div>
@@ -1045,19 +1257,24 @@ const generateGameLayout = () => {
 
       <!-- Player Stats Section -->
       <div class="player-stats-bar">
-        <div class="victory-tracker-left">
-          <div class="victory-stat large">
-            <div class="victory-value score-value-large">0</div>
-          </div>
-          <div class="victory-stat large">
-            <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
-            <div class="victory-value overlaid">0</div>
-          </div>
-          <div class="victory-stat large">
-            <div class="victory-icon-backdrop color blue"></div>
-            <div class="victory-value overlaid">0</div>
-          </div>
-        </div>
+        ${(() => {
+          const playerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+          const stats = getPlayerVictoryStats(playerId);
+          return `
+            <div class="victory-tracker-left">
+              <div class="victory-stat large">
+                <div class="victory-value score-value-large">${stats.totalPoints}</div>
+              </div>
+              <div class="victory-stat large">
+                <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
+                <div class="victory-value overlaid">${stats.totalCrowns}</div>
+              </div>
+              <div class="victory-stat large">
+                <div class="victory-icon-backdrop color ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"></div>
+                <div class="victory-value overlaid">${stats.maxPoints}</div>
+              </div>
+            </div>`;
+        })()}
         <div class="player-resources">
           <div class="hand-header-left">
             <div class="player-scrolls">
@@ -1069,11 +1286,11 @@ const generateGameLayout = () => {
           <div class="hand-header-right">
             <div class="stat-icon pearl">
               ${generatePearlIcon(24)}
-              <span class="stat-count pearl-count">0</span>
+              <span class="stat-count pearl-count">${gameState.players.player1.tokens.pearl}</span>
             </div>
             <div class="stat-icon gold">
               ${generateGoldIcon(24)}
-              <span class="stat-count gold-count">0</span>
+              <span class="stat-count gold-count">${gameState.players.player1.tokens.gold}</span>
             </div>
           </div>
         </div>
@@ -1113,6 +1330,12 @@ const closePopover = (id) => {
     selectedCard = null;
     selectedCardElement = null;
   }
+  if (id === 'token-selection-modal') {
+    // Clear selection when closing modal
+    selectedTokens = [];
+    selectionError = null;
+    hideSelectionError();
+  }
 };
 
 const populateCardDetailPopover = (card) => {
@@ -1147,9 +1370,10 @@ const buySelectedCard = () => {
   const level = selectedCard.level;
   const levelKey = `level${level}`;
   const index = selectedCard._pyramidIndex;
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   
-  // Add card to player's collection
-  gameState.players.player1.cards.push(selectedCard);
+  // Add card to current player's collection
+  gameState.players[currentPlayerId].cards.push(selectedCard);
   
   // Remove from pyramid
   gameState.pyramid[levelKey].splice(index, 1);
@@ -1159,11 +1383,11 @@ const buySelectedCard = () => {
     gameState.pyramid[levelKey].splice(index, 0, gameState.decks[levelKey].shift());
   }
   
+  // Close popover before re-rendering
+  closePopover('card-detail-popover');
+  
   // Re-render the game
   renderGame();
-  
-  // Close popover
-  closePopover('card-detail-popover');
 };
 
 const reserveSelectedCard = () => {
@@ -1191,10 +1415,309 @@ const reserveSelectedCard = () => {
   closePopover('card-detail-popover');
 };
 
+// Token selection state
+let selectedTokens = [];
+let selectionError = null;
+
+// Toggle token selection
+const toggleTokenSelection = (row, col) => {
+  const token = gameState.board[row][col];
+  
+  // Gold tokens can never be selected
+  if (token === 'gold') {
+    return;
+  }
+  
+  // Empty spaces can't be selected
+  if (!token) {
+    return;
+  }
+  
+  // Toggle selection
+  const index = selectedTokens.findIndex(t => t.row === row && t.col === col);
+  if (index !== -1) {
+    selectedTokens.splice(index, 1);
+  } else {
+    selectedTokens.push({ row, col, token });
+  }
+  
+  // Clear error message
+  selectionError = null;
+  hideSelectionError();
+  
+  // Re-render the token board to show selection state
+  renderTokenBoard();
+};
+
+// Validate token selection
+const validateTokenSelection = () => {
+  if (selectedTokens.length === 0 || selectedTokens.length > 3) {
+    return { valid: false, message: 'You must select between 1 and 3 tokens' };
+  }
+  
+  if (selectedTokens.length === 1) {
+    return { valid: true };
+  }
+  
+  // Check if tokens form a valid line
+  const positions = selectedTokens.map(t => [t.row, t.col]);
+  
+  // Check for horizontal line
+  const rows = new Set(positions.map(p => p[0]));
+  if (rows.size === 1 && selectedTokens.length === 2) {
+    // Two tokens in same row - check if adjacent
+    const sortedCols = positions.map(p => p[1]).sort((a, b) => a - b);
+    if (sortedCols[1] - sortedCols[0] === 1) {
+      return checkLineForGoldOrEmpty(positions);
+    }
+  }
+  
+  // Check for vertical line
+  const cols = new Set(positions.map(p => p[1]));
+  if (cols.size === 1 && selectedTokens.length === 2) {
+    // Two tokens in same col - check if adjacent
+    const sortedRows = positions.map(p => p[0]).sort((a, b) => a - b);
+    if (sortedRows[1] - sortedRows[0] === 1) {
+      return checkLineForGoldOrEmpty(positions);
+    }
+  }
+  
+  // Check for diagonal line (for 2 tokens)
+  if (selectedTokens.length === 2) {
+    const rowDiff = Math.abs(positions[0][0] - positions[1][0]);
+    const colDiff = Math.abs(positions[0][1] - positions[1][1]);
+    if (rowDiff === 1 && colDiff === 1) {
+      return checkLineForGoldOrEmpty(positions);
+    }
+  }
+  
+  // For 3 tokens, must all be adjacent and in line
+  if (selectedTokens.length === 3) {
+    // Sort positions to find direction
+    positions.sort((a, b) => {
+      if (a[0] !== b[0]) return a[0] - b[0];
+      return a[1] - b[1];
+    });
+    
+    // Check horizontal line of 3
+    const allSameRow = positions.every(p => p[0] === positions[0][0]);
+    if (allSameRow && positions[2][1] - positions[0][1] === 2) {
+      return checkLineForGoldOrEmpty(positions);
+    }
+    
+    // Check vertical line of 3
+    const allSameCol = positions.every(p => p[1] === positions[0][1]);
+    if (allSameCol && positions[2][0] - positions[0][0] === 2) {
+      return checkLineForGoldOrEmpty(positions);
+    }
+    
+    // Check diagonal line of 3
+    const rowDiff = positions[2][0] - positions[0][0];
+    const colDiff = positions[2][1] - positions[0][1];
+    if (Math.abs(rowDiff) === 2 && Math.abs(colDiff) === 2 && Math.abs(rowDiff) === Math.abs(colDiff)) {
+      return checkLineForGoldOrEmpty(positions);
+    }
+  }
+  
+  return { valid: false, message: 'Tokens must be adjacent and in a straight line' };
+};
+
+// Check if line contains gold or empty spaces
+const checkLineForGoldOrEmpty = (positions) => {
+  for (const [row, col] of positions) {
+    const token = gameState.board[row][col];
+    if (!token || token === 'gold') {
+      return { 
+        valid: false, 
+        message: 'A straight line of tokens may not include gold tokens or empty spaces' 
+      };
+    }
+  }
+  return { valid: true };
+};
+
+// Show selection error
+const showSelectionError = (message) => {
+  const modal = document.getElementById('token-selection-modal');
+  if (!modal) return;
+  
+  // Create error overlay above modal
+  let errorDiv = document.getElementById('token-selection-error');
+  if (!errorDiv) {
+    errorDiv = document.createElement('div');
+    errorDiv.id = 'token-selection-error';
+    errorDiv.style.cssText = `
+      position: absolute;
+      top: -80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #e74c3c;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      white-space: nowrap;
+      z-index: 130;
+      font-weight: bold;
+      animation: slideIn 0.2s ease;
+    `;
+    
+    // Add animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    modal.parentElement.style.position = 'relative';
+    modal.parentElement.appendChild(errorDiv);
+  }
+  
+  errorDiv.textContent = message;
+  errorDiv.style.display = 'block';
+};
+
+// Hide selection error
+const hideSelectionError = () => {
+  const errorDiv = document.getElementById('token-selection-error');
+  if (errorDiv) {
+    errorDiv.style.display = 'none';
+  }
+};
+
+// Generate clickable overlay divs for each token space
+const generateTokenOverlays = () => {
+  const size = 220;
+  
+  // Match the SVG calculation from generateTokenBoard
+  const marginWidth = size * 0.03;
+  const marginInnerSize = size - marginWidth * 2;
+  const gridSize = marginInnerSize;
+  const gridCellSize = gridSize / 5;
+  
+  let html = '';
+  
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 5; col++) {
+      const token = gameState.board[row][col];
+      const isSelected = selectedTokens.some(t => t.row === row && t.col === col);
+      const isGold = token === 'gold';
+      const isEmpty = !token;
+      
+      // Use the same positioning calculation as the SVG
+      const left = marginWidth + col * gridCellSize;
+      const top = marginWidth + row * gridCellSize;
+      
+      let classes = 'token-overlay';
+      if (isSelected) classes += ' selected';
+      if (isGold) classes += ' gold-token';
+      if (isEmpty) classes += ' empty';
+      
+      const cursorStyle = isGold || isEmpty ? 'default' : 'pointer';
+      
+      html += `<div class="${classes}" 
+                     data-row="${row}" 
+                     data-col="${col}"
+                     style="position: absolute; 
+                            left: ${left}px; 
+                            top: ${top}px; 
+                            width: ${gridCellSize}px; 
+                            height: ${gridCellSize}px;
+                            cursor: ${cursorStyle};"></div>`;
+    }
+  }
+  
+  return html;
+};
+
+// Re-render token board in modal
+const renderTokenBoard = () => {
+  const tokenContainer = document.getElementById('token-board-container');
+  if (tokenContainer) {
+    // Render the SVG
+    const svg = tokenContainer.querySelector('.token-board-svg');
+    if (svg) {
+      svg.outerHTML = generateTokenBoard(220);
+    }
+    
+    // Render overlays
+    const overlayContainer = document.getElementById('token-click-overlays');
+    if (overlayContainer) {
+      overlayContainer.innerHTML = generateTokenOverlays();
+    }
+    
+    attachTokenBoardListeners();
+  }
+};
+
+// Attach click listeners to token board
+const attachTokenBoardListeners = () => {
+  // Remove existing listeners
+  const existingOverlays = document.querySelectorAll('.token-overlay');
+  existingOverlays.forEach(overlay => {
+    const handler = overlay._clickHandler;
+    if (handler) {
+      overlay.removeEventListener('click', handler);
+    }
+  });
+  
+  // Add new listeners
+  const overlays = document.querySelectorAll('.token-overlay');
+  overlays.forEach(overlay => {
+    const handler = (e) => {
+      const row = parseInt(overlay.dataset.row);
+      const col = parseInt(overlay.dataset.col);
+      toggleTokenSelection(row, col);
+    };
+    overlay._clickHandler = handler;
+    overlay.addEventListener('click', handler);
+  });
+};
+
+// Confirm token selection
+const confirmTokenSelection = () => {
+  const validation = validateTokenSelection();
+  
+  if (!validation.valid) {
+    showSelectionError(validation.message);
+    return;
+  }
+  
+  // Add tokens to player's hand
+  const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  selectedTokens.forEach(({ token }) => {
+    gameState.players[currentPlayer].tokens[token]++;
+  });
+  
+  // Remove tokens from board
+  selectedTokens.forEach(({ row, col }) => {
+    gameState.board[row][col] = null;
+  });
+  
+  // Clear selection
+  selectedTokens = [];
+  selectionError = null;
+  
+  // Close modal before re-rendering
+  closePopover('token-selection-modal');
+  
+  // Re-render game to show updated tokens
+  renderGame();
+};
+
 // Expose to global scope for onclick handlers
 window.buySelectedCard = buySelectedCard;
 window.reserveSelectedCard = reserveSelectedCard;
-window.closePopover = closePopover;
+window.confirmTokenSelection = confirmTokenSelection;
 
 // Close any open popover on escape key
 document.addEventListener("keydown", (e) => {
@@ -1224,6 +1747,27 @@ const attachPopoverListeners = () => {
       openPopover('card-detail-popover', card, cardEl);
     };
     cardEl.addEventListener('click', cardEl._popoverHandler);
+  });
+
+  // Find all general popover triggers
+  document.querySelectorAll('[data-clickable="popover"]').forEach(triggerEl => {
+    triggerEl._popoverHandler = (e) => {
+      const modalId = triggerEl.dataset.popover;
+      
+      // Initialize token selection state when opening token modal
+      if (modalId === 'token-selection-modal') {
+        selectedTokens = [];
+        selectionError = null;
+        openPopover(modalId);
+        // Attach token board listeners after modal is shown
+        setTimeout(() => {
+          attachTokenBoardListeners();
+        }, 100);
+      } else {
+        openPopover(modalId);
+      }
+    };
+    triggerEl.addEventListener('click', triggerEl._popoverHandler);
   });
 };
 
