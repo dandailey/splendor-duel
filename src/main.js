@@ -863,6 +863,359 @@ const getPlayerVictoryStats = (playerId) => {
   };
 };
 
+// --- Purchasing helpers ---
+const purchaseColors = ['blue', 'white', 'green', 'red', 'black'];
+
+const getAffordability = (card, playerId) => {
+  const player = gameState.players[playerId];
+  const { cards } = getPlayerCards(playerId);
+  const deficits = {};
+  let remainingAfterColorTokens = 0;
+  
+  // Colored costs after discounts (cards act as permanent discounts)
+  purchaseColors.forEach(color => {
+    const cost = card.costs[color] || 0;
+    const discount = cards[color] || 0;
+    const need = Math.max(0, cost - discount);
+    deficits[color] = need;
+    const payWithTokens = Math.min(need, player.tokens[color] || 0);
+    remainingAfterColorTokens += (need - payWithTokens);
+  });
+  
+  // Pearl costs (no discounts), cover with pearl tokens first
+  const pearlCost = card.costs.pearl || 0;
+  deficits.pearl = pearlCost;
+  const pearlCovered = Math.min(pearlCost, player.tokens.pearl || 0);
+  remainingAfterColorTokens += (pearlCost - pearlCovered);
+  
+  const affordable = remainingAfterColorTokens <= (player.tokens.gold || 0);
+  return { affordable, deficits };
+};
+
+const formatDeficits = (deficits) => {
+  const order = ['pearl', ...purchaseColors];
+  const label = (c) => c.charAt(0).toUpperCase() + c.slice(1);
+  const parts = [];
+  order.forEach(c => {
+    const n = deficits[c] || 0;
+    if (n > 0) parts.push(`${label(c)} ×${n}`);
+  });
+  return parts.join(', ');
+};
+
+let paymentState = null;
+
+// Compute if a purchase is possible given explicit gold assignments.
+// Gold assignments: array of 'blue'|'white'|'green'|'red'|'black'|'pearl'|null
+// Returns { valid, spend, message }
+const computePaymentPlanWithGold = (card, playerId, goldAssignments = []) => {
+  const player = gameState.players[playerId];
+  const { cards } = getPlayerCards(playerId);
+  const spend = { gold: 0, pearl: 0, blue: 0, white: 0, green: 0, red: 0, black: 0 };
+
+  // Needs after permanent card discounts
+  const needs = { pearl: card.costs.pearl || 0 };
+  purchaseColors.forEach(color => {
+    needs[color] = Math.max(0, (card.costs[color] || 0) - (cards[color] || 0));
+  });
+
+  // Count gold assignments per kind
+  const assigned = { pearl: 0, blue: 0, white: 0, green: 0, red: 0, black: 0 };
+  (goldAssignments || []).forEach(kind => {
+    if (kind && assigned.hasOwnProperty(kind)) assigned[kind]++;
+  });
+
+  // Apply gold to cover assigned kinds up to their needs
+  Object.keys(assigned).forEach(kind => {
+    const use = Math.min(assigned[kind], needs[kind] || 0);
+    needs[kind] = Math.max(0, (needs[kind] || 0) - use);
+    spend.gold += use;
+  });
+
+  // Cover remaining needs with player's matching tokens
+  const cover = (kind, available) => {
+    const need = needs[kind] || 0;
+    const use = Math.min(need, available);
+    spend[kind] = use;
+    needs[kind] = Math.max(0, need - use);
+  };
+  cover('pearl', player.tokens.pearl || 0);
+  purchaseColors.forEach(color => cover(color, player.tokens[color] || 0));
+
+  // Any residual means invalid with the chosen assignments
+  const residual = (needs.pearl || 0) + purchaseColors.reduce((s, c) => s + (needs[c] || 0), 0);
+  if (residual > 0) {
+    return { valid: false, spend, message: 'Selection does not fully cover the cost.' };
+  }
+
+  return { valid: true, spend };
+};
+
+const buildDefaultPayment = (card, playerId) => {
+  const player = gameState.players[playerId];
+  const { cards } = getPlayerCards(playerId);
+  const selection = { gold: 0, pearl: 0, blue: 0, white: 0, green: 0, red: 0, black: 0 };
+  const caps = { ...selection };
+  
+  // Determine per-color needs after discounts
+  purchaseColors.forEach(color => {
+    const need = Math.max(0, (card.costs[color] || 0) - (cards[color] || 0));
+    const payColor = Math.min(need, player.tokens[color] || 0);
+    selection[color] = payColor; // spend exact color first
+    caps[color] = need; // cannot exceed need
+  });
+  
+  // Pearl: no discounts
+  const pearlNeed = card.costs.pearl || 0;
+  const payPearl = Math.min(pearlNeed, player.tokens.pearl || 0);
+  selection.pearl = payPearl;
+  caps.pearl = pearlNeed;
+  
+  // Remaining owed becomes gold
+  let remaining = 0;
+  purchaseColors.forEach(color => {
+    remaining += Math.max(0, caps[color] - selection[color]);
+  });
+  remaining += Math.max(0, caps.pearl - selection.pearl);
+  selection.gold = Math.min(remaining, player.tokens.gold || 0);
+  caps.gold = remaining; // maximum useful gold to complete payment
+  
+  return { selection, caps };
+};
+
+const isSelectionValid = (selection, caps) => {
+  // Each color cannot exceed cap
+  for (const key in caps) {
+    if ((selection[key] || 0) > (caps[key] || 0)) return false;
+  }
+  // Check total coverage equals total caps across non-gold, with gold covering remainder exactly
+  let remaining = 0;
+  ['pearl', ...purchaseColors].forEach(c => {
+    remaining += Math.max(0, (caps[c] || 0) - (selection[c] || 0));
+  });
+  return (selection.gold || 0) >= remaining;
+};
+
+const enterPaymentMode = () => {
+  if (!selectedCard) return;
+  const playerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const { selection, caps } = buildDefaultPayment(selectedCard, playerId);
+  paymentState = { playerId, selection, caps };
+  renderPaymentPane();
+};
+
+const renderPaymentContent = () => {
+  const pane = document.getElementById('payment-pane');
+  if (!pane || !paymentState) return;
+  const player = gameState.players[paymentState.playerId];
+
+  // Helper to reproduce the cost display ordering (left-to-right, top-to-bottom)
+  const getCostOrder = (costs) => {
+    const nonZero = Object.entries(costs).filter(([c, n]) => n && n > 0);
+    const pearl = nonZero.find(([c]) => c === 'pearl');
+    const others = nonZero.filter(([c]) => c !== 'pearl');
+    // Up to four positions on cards: 1,2 on top row; 3,4 bottom row. Pearl takes pos 2 if present.
+    const slots = [null, null, null, null];
+    if (pearl) slots[1] = pearl; // position index 1 represents the second slot
+    let oi = 0;
+    for (let i = 0; i < 4; i++) {
+      if (!slots[i] && oi < others.length) slots[i] = others[oi++];
+    }
+    return slots.filter(Boolean).map(([c]) => c);
+  };
+
+  const costs = selectedCard ? selectedCard.costs || {} : {};
+  const order = getCostOrder(costs);
+  const { cards } = getPlayerCards(paymentState.playerId);
+
+  // Build "You have:" icons (up to 8), only for applicable resources
+  const haveIcons = [];
+  const maxIcons = 8;
+  order.forEach(color => {
+    if (color === 'pearl') {
+      const need = costs.pearl || 0;
+      const canUsePearl = Math.min(need, player.tokens.pearl || 0);
+      for (let i = 0; i < canUsePearl && haveIcons.length < maxIcons; i++) {
+        haveIcons.push(`<span style="display:inline-flex; width:22px; height:22px; align-items:center; justify-content:center; margin:2px;">${generatePearlIcon(18)}</span>`);
+      }
+    } else {
+      const need = costs[color] || 0;
+      const cardUnits = Math.min(need, cards[color] || 0);
+      const tokenUnits = Math.min(Math.max(0, need - cardUnits), player.tokens[color] || 0);
+      // Card rectangles first
+      for (let i = 0; i < cardUnits && haveIcons.length < maxIcons; i++) {
+        haveIcons.push(`<span title="${color} card" style="display:inline-block; width:22px; height:14px; border-radius:3px; background:${getColorValue(color)}; margin:4px 3px; box-shadow:0 1px 2px rgba(0,0,0,.3);"></span>`);
+      }
+      // Then tokens (add a light ring for black to improve contrast)
+      for (let i = 0; i < tokenUnits && haveIcons.length < maxIcons; i++) {
+        const ringStyle = color === 'black' ? 'outline: 2px solid rgba(255,255,255,.85); border-radius: 50%;' : '';
+        haveIcons.push(`<span style="display:inline-flex; width:22px; height:22px; align-items:center; justify-content:center; margin:2px; ${ringStyle}">${generateGemTokenIcon(color, 18)}</span>`);
+      }
+    }
+  });
+
+  // Determine affordability and remaining deficits after applying non-gold
+  const colorNeed = {};
+  purchaseColors.forEach(c => {
+    const need = Math.max(0, (costs[c] || 0) - (cards[c] || 0));
+    const remaining = Math.max(0, need - (player.tokens[c] || 0));
+    colorNeed[c] = remaining;
+  });
+  const pearlRemaining = Math.max(0, (costs.pearl || 0) - (player.tokens.pearl || 0));
+  const kindsNeeded = [
+    ...purchaseColors.filter(c => colorNeed[c] > 0),
+    ...(pearlRemaining > 0 ? ['pearl'] : [])
+  ];
+  const totalRemaining = kindsNeeded.reduce((sum, c) => sum + (c === 'pearl' ? pearlRemaining : colorNeed[c]), 0);
+  const affordable = totalRemaining <= (player.tokens.gold || 0);
+
+  // Persist gold assignment state
+  if (!paymentState.goldAssignments) {
+    const count = player.tokens.gold || 0;
+    paymentState.goldAssignments = Array.from({ length: count }, () => null);
+  } else if (paymentState.goldAssignments.length !== (player.tokens.gold || 0)) {
+    const count = player.tokens.gold || 0;
+    paymentState.goldAssignments = Array.from({ length: count }, (_, i) => paymentState.goldAssignments[i] || null);
+  }
+
+  // Build HTML
+  const sections = [];
+
+  if (haveIcons.length > 0) {
+    sections.push(`
+      <div style="background:#ffffff; color:#222; padding:8px 10px; border-radius:8px; display:block; box-shadow:0 1px 2px rgba(0,0,0,.1);">
+        <div style="font-weight:800; margin-bottom:6px;">You have:</div>
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:4px;">${haveIcons.join('')}</div>
+      </div>
+    `);
+  } else {
+    sections.push(`<div style="color:#ddd; font-style:italic;">You have no resources to buy this card</div>`);
+  }
+
+  if (!affordable) {
+    sections.push(`<div style="margin-top:8px; color:#ff8a80;">You cannot buy this card with your current resources.</div>`);
+  }
+
+  if (affordable && (player.tokens.gold || 0) > 0) {
+    const goldCount = player.tokens.gold || 0;
+    const headerText = goldCount > 1 ? 'Use your gold tokens:' : 'Use your gold token:';
+    const rows = [];
+    // Options per row are the kinds still needed
+    const optionIcon = (kind) => kind === 'pearl' ? generatePearlIcon(18) : generateGemTokenIcon(kind, 18);
+    for (let i = 0; i < goldCount; i++) {
+      const current = paymentState.goldAssignments[i];
+      const options = kindsNeeded.map(kind => {
+        const isSelected = current === kind;
+        const style = isSelected ? 'outline: 2px solid #4a90e2; box-shadow: 0 0 6px rgba(74,144,226,.6); background: rgba(255,255,255,.06);' : 'opacity:.7;';
+        return `<span class="gold-option" data-row="${i}" data-kind="${kind}" style="display:inline-flex; width:24px; height:24px; margin:2px; align-items:center; justify-content:center; border-radius:6px; cursor:pointer; ${style}">${optionIcon(kind)}</span>`;
+      }).join('');
+      rows.push(`
+        <div class="gold-row" data-row="${i}" style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+          <span style="display:inline-flex; width:24px; height:24px; align-items:center; justify-content:center;">${generateGoldIcon(18)}</span>
+          <div style="display:flex; flex-wrap:wrap;">${options}</div>
+        </div>
+      `);
+    }
+    // Wrap header + rows in a white box
+    sections.push(`
+      <div style="background:#ffffff; color:#222; padding:8px 10px; border-radius:8px; display:block; box-shadow:0 1px 2px rgba(0,0,0,.1); margin-top:10px;">
+        <div style="font-weight:800; margin-bottom:6px;">${headerText}</div>
+        ${rows.join('')}
+      </div>
+    `);
+    // Validate the current assignments and optionally show a message
+    const plan = computePaymentPlanWithGold(selectedCard, paymentState.playerId, paymentState.goldAssignments);
+    if (!plan.valid) {
+      sections.push(`<div style="margin-top:6px; color:#ff8a80;">${plan.message}</div>`);
+    }
+  }
+
+  // Reservation eligibility message (always last in pane) unless buying from reserve
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const reserveCount = gameState.players[currentPlayerId].reserves.length;
+  const fromReserve = paymentState && paymentState.context && paymentState.context.fromReserve;
+  if (!fromReserve && reserveCount >= 3) {
+    sections.push(`<div style="margin-top:10px; color:#ffcc80;">You already have 3 reserved cards and cannot reserve another.</div>`);
+  }
+
+  // Render container
+  pane.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:6px; padding:8px 8px 8px 28px; box-sizing:border-box;">
+      ${sections.join('')}
+    </div>
+  `;
+
+  // Attach listeners for gold selection
+  document.querySelectorAll('.gold-option').forEach(el => {
+    el.addEventListener('click', () => {
+      const row = parseInt(el.getAttribute('data-row'), 10);
+      const kind = el.getAttribute('data-kind');
+      if (paymentState.goldAssignments[row] === kind) {
+        paymentState.goldAssignments[row] = null; // toggle off
+      } else {
+        paymentState.goldAssignments[row] = kind; // select
+      }
+      renderPaymentContent();
+    });
+  });
+
+  // Ensure Buy button state mirrors affordability/validity using gold assignments when present
+  const buyBtn = document.getElementById('buy-button');
+  if (buyBtn) {
+    const plan = computePaymentPlanWithGold(selectedCard, paymentState.playerId, paymentState.goldAssignments);
+    buyBtn.disabled = !plan.valid;
+    buyBtn.onclick = () => finalizePurchaseWithSelection();
+  }
+  // Update reserve button disabled state
+  const reserveBtn = document.querySelector('.reserve-button');
+  if (reserveBtn) {
+    const rpId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+    const hideReserve = paymentState && paymentState.context && paymentState.context.fromReserve;
+    if (hideReserve) {
+      reserveBtn.style.display = 'none';
+    } else {
+      reserveBtn.disabled = gameState.players[rpId].reserves.length >= 3;
+    }
+  }
+};
+
+const finalizePurchaseWithSelection = () => {
+  if (!paymentState || !selectedCard) return;
+  const { playerId } = paymentState;
+  const plan = computePaymentPlanWithGold(selectedCard, playerId, paymentState.goldAssignments);
+  if (!plan.valid) return;
+  const player = gameState.players[playerId];
+  // Deduct tokens according to computed plan
+  ['gold', 'pearl', ...purchaseColors].forEach(color => {
+    const spend = plan.spend[color] || 0;
+    if (spend > 0) player.tokens[color] = Math.max(0, (player.tokens[color] || 0) - spend);
+  });
+  // Grant card: handle reserve vs pyramid source
+  if (paymentState && paymentState.context && paymentState.context.fromReserve) {
+    const rIndex = paymentState.context.reserveIndex;
+    if (typeof rIndex === 'number' && rIndex >= 0) {
+      const card = gameState.players[playerId].reserves.splice(rIndex, 1)[0];
+      if (card) player.cards.push(card);
+    } else {
+      // Fallback if index missing: just push selectedCard
+      player.cards.push(selectedCard);
+    }
+  } else {
+    const level = selectedCard.level;
+    const levelKey = `level${level}`;
+    const index = selectedCard._pyramidIndex;
+    player.cards.push(selectedCard);
+    gameState.pyramid[levelKey].splice(index, 1);
+    if (gameState.decks[levelKey].length > 0) {
+      gameState.pyramid[levelKey].splice(index, 0, gameState.decks[levelKey].shift());
+    }
+  }
+  paymentState = null;
+  purchaseContext = null;
+  closePopover('card-detail-popover');
+  renderGame();
+};
+
 const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
   const colorClasses = {
     blue: 'blue',
@@ -1090,28 +1443,6 @@ const generateGameLayout = () => {
         </div>
       </div>
 
-      <!-- Reserved Card View Modal -->
-      <div class="modal-overlay" id="reserved-modal" style="display: none;">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Reserved Cards</h3>
-            <button class="close-modal" onclick="document.getElementById('reserved-modal').style.display='none'">×</button>
-          </div>
-          <div class="reserved-cards-view">
-            <div class="reserved-card-view">
-              <div class="card level-2-card" style="width: 100px; height: 135px;">
-                <div class="card-header">
-                  <div class="card-level level-2">2</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+2</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Royal Cards Modal -->
       <div class="modal-overlay" id="royal-modal" style="display: none;">
         <div class="modal-content">
@@ -1207,6 +1538,15 @@ const generateGameLayout = () => {
               </div>
             </div>
           </div>
+
+          <!-- Reserved Cards Modal -->
+          <div class="modal-overlay card-modal-overlay" id="reserved-modal" style="display: none;">
+            <div class="modal-content card-detail-content">
+              <div class="modal-body">
+                <!-- Content will be injected -->
+              </div>
+            </div>
+          </div>
           
           <div class="card-pyramid">
             <div class="pyramid-row">
@@ -1284,21 +1624,23 @@ const generateGameLayout = () => {
             </div>
           </div>
           <div class="hand-header-right">
-            <div class="stat-icon pearl">
-              ${generatePearlIcon(24)}
-              <span class="stat-count pearl-count">${gameState.players.player1.tokens.pearl}</span>
-            </div>
-            <div class="stat-icon gold">
-              ${generateGoldIcon(24)}
-              <span class="stat-count gold-count">${gameState.players.player1.tokens.gold}</span>
-            </div>
+            ${(() => { const p = gameState.currentPlayer === 1 ? 'player1' : 'player2'; return `
+              <div class=\"stat-icon pearl\">
+                ${generatePearlIcon(24)}
+                <span class=\"stat-count pearl-count\">${gameState.players[p].tokens.pearl}</span>
+              </div>
+              <div class=\"stat-icon gold\">
+                ${generateGoldIcon(24)}
+                <span class=\"stat-count gold-count\">${gameState.players[p].tokens.gold}</span>
+              </div>
+            `; })()}
           </div>
         </div>
       </div>
 
       <!-- Global Hand Display (always at bottom) -->
       <div class="global-hand-display" id="player-hand">
-        ${renderPlayerHand('player1')}
+        ${(() => { const p = gameState.currentPlayer === 1 ? 'player1' : 'player2'; return renderPlayerHand(p); })()}
       </div>
   </div>
   `;
@@ -1307,6 +1649,7 @@ const generateGameLayout = () => {
 // Track selected card
 let selectedCard = null;
 let selectedCardElement = null;
+let purchaseContext = null; // { source: 'pyramid'|'reserve', reserveIndex?: number, playerId?: string }
 
 // Popover management functions
 const openPopover = (id, cardData = null, cardElement = null) => {
@@ -1316,6 +1659,8 @@ const openPopover = (id, cardData = null, cardElement = null) => {
       selectedCard = cardData;
       selectedCardElement = cardElement;
       populateCardDetailPopover(cardData);
+    } else if (id === 'reserved-modal') {
+      populateReservedModal();
     }
     popover.style.display = "flex";
   }
@@ -1338,30 +1683,94 @@ const closePopover = (id) => {
   }
 };
 
+// Reserved cards modal rendering
+const populateReservedModal = () => {
+  const modalBody = document.querySelector('#reserved-modal .modal-body');
+  if (!modalBody) return;
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const reserves = gameState.players[currentPlayerId].reserves || [];
+
+  if (reserves.length === 0) {
+    modalBody.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:center; height:100%;">
+        <div style="color:#ddd; font-style:italic;">You have no reserved cards.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const cardsHtml = reserves.map((card, idx) => {
+    const afford = getAffordability(card, currentPlayerId);
+    const cardHtml = renderCardV2(card, `level-${card.level}-card`);
+    return `
+      <div class="reserved-card-wrapper" style="flex:0 0 30%; max-width:30%; display:flex; flex-direction:column; align-items:center; gap:10px; padding-bottom:14px;">
+        <div style="display:flex; justify-content:center; align-items:center; transform: scale(1.4); transform-origin: top center; margin-bottom:30px;">
+          ${cardHtml}
+        </div>
+        <button class="action-button buy-button" ${afford.affordable ? '' : 'disabled'} data-reserve-index="${idx}">Buy</button>
+      </div>
+    `;
+  }).join('');
+
+  modalBody.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:12px; padding:12px; height:100%; box-sizing:border-box;">
+      <div style="display:flex; justify-content:center; gap:16px; align-items:flex-start; flex-wrap:nowrap; width:100%;">
+        ${cardsHtml}
+      </div>
+      <div style="display:flex; justify-content:center; margin-top:auto;">
+        <button onclick="closePopover('reserved-modal')" class="action-button cancel-button">Close</button>
+      </div>
+    </div>
+  `;
+
+  // Attach buy handlers
+  modalBody.querySelectorAll('.buy-button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.getAttribute('data-reserve-index'), 10);
+      const card = reserves[idx];
+      if (!card) return;
+      purchaseContext = { source: 'reserve', reserveIndex: idx, playerId: currentPlayerId };
+      // Close the reserved modal first to prevent overlapping overlays
+      closePopover('reserved-modal');
+      openPopover('card-detail-popover', card, null);
+    });
+  });
+};
+
 const populateCardDetailPopover = (card) => {
   const modalBody = document.querySelector('#card-detail-popover .modal-body');
   if (!modalBody) return;
   
   // Render using card-v2 with large class for 3x scale
   const levelClass = `level-${card.level}-card`;
-  const cardHTML = renderCardV2(card, levelClass).replace('card-v2', 'card-v2 large');
+  const cardHTML = renderCardV2(card, levelClass).replace('card-v2', 'card-v2');
   
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const afford = getAffordability(card, currentPlayerId);
+
+  const fromReserve = purchaseContext && purchaseContext.source === 'reserve';
   modalBody.innerHTML = `
-    <div style="display: flex; flex-direction: row; align-items: flex-start; gap: 30px; padding: 20px; justify-content: center; height: 100%;">
-      <div style="display: flex; justify-content: center; align-items: center;">
-        ${cardHTML}
+    <div style="display:flex; flex-direction:column; gap:10px; padding:12px; height:100%; box-sizing:border-box;">
+      <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start; flex:1 1 auto; overflow:hidden;">
+        <div style="display:flex; justify-content:center; align-items:center; transform: scale(2); transform-origin: top left; position: relative; z-index: 1;">
+          ${cardHTML}
+        </div>
+        <div id="payment-pane-wrapper" style="flex:1 1 260px; min-width:260px; margin-left:24px; height:100%; overflow:auto; position:relative; z-index:2;">
+          <div id="payment-pane"></div>
+        </div>
       </div>
-      <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; padding-top: 20px; padding-bottom: 20px;">
-        <div style="display: flex; flex-direction: column; gap: 15px;">
-          <button onclick="buySelectedCard()" class="action-button buy-button">Buy</button>
-          <button onclick="reserveSelectedCard()" class="action-button reserve-button">Reserve</button>
-        </div>
-        <div style="display: flex; justify-content: center;">
-          <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Cancel</button>
-        </div>
+      <div style="display:flex; gap:10px; justify-content:center; padding-top:6px; margin-top:auto;">
+        <button id="buy-button" class="action-button buy-button" ${afford.affordable ? '' : 'disabled'}>Buy</button>
+        ${fromReserve ? '' : `<button onclick="reserveSelectedCard()" class="action-button reserve-button" ${gameState.players[currentPlayerId].reserves.length >= 3 ? 'disabled' : ''}>Reserve</button>`}
+        <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Close</button>
       </div>
     </div>
   `;
+  // Always show picker; Buy will remain disabled if invalid
+  const playerId = currentPlayerId;
+  const init = buildDefaultPayment(card, playerId);
+  paymentState = { playerId, selection: init.selection, caps: init.caps, context: { fromReserve, reserveIndex: fromReserve ? purchaseContext.reserveIndex : null } };
+  renderPaymentContent();
 };
 
 const buySelectedCard = () => {
@@ -1392,27 +1801,43 @@ const buySelectedCard = () => {
 
 const reserveSelectedCard = () => {
   if (!selectedCard) return;
-  
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const player = gameState.players[currentPlayerId];
+  // Guard: max 3 reserves
+  if (player.reserves.length >= 3) return;
+
   const level = selectedCard.level;
   const levelKey = `level${level}`;
   const index = selectedCard._pyramidIndex;
-  
+
   // Add to player reserves
-  gameState.players.player1.reserves.push(selectedCard);
-  
+  player.reserves.push(selectedCard);
+
+  // Attempt to award a random gold token from the board if any exist
+  const goldCells = [];
+  for (let r = 0; r < gameState.board.length; r++) {
+    for (let c = 0; c < gameState.board[r].length; c++) {
+      if (gameState.board[r][c] === 'gold') goldCells.push([r, c]);
+    }
+  }
+  if (goldCells.length > 0) {
+    const [gr, gc] = goldCells[Math.floor(Math.random() * goldCells.length)];
+    gameState.board[gr][gc] = null;
+    player.tokens.gold = (player.tokens.gold || 0) + 1;
+  }
+
   // Remove from pyramid
   gameState.pyramid[levelKey].splice(index, 1);
-  
+
   // Draw new card from deck if available
   if (gameState.decks[levelKey].length > 0) {
     gameState.pyramid[levelKey].splice(index, 0, gameState.decks[levelKey].shift());
   }
-  
+
+  // Close popover before re-render
+  closePopover('card-detail-popover');
   // Re-render the game
   renderGame();
-  
-  // Close popover
-  closePopover('card-detail-popover');
 };
 
 // Token selection state
@@ -1718,6 +2143,7 @@ const confirmTokenSelection = () => {
 window.buySelectedCard = buySelectedCard;
 window.reserveSelectedCard = reserveSelectedCard;
 window.confirmTokenSelection = confirmTokenSelection;
+// Deprecated: payment now renders inline in the same modal
 
 // Close any open popover on escape key
 document.addEventListener("keydown", (e) => {
