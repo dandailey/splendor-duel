@@ -1,4 +1,5 @@
 import "./style.css";
+import cardsCsv from "./splendor_cards.csv?raw";
 
 let allCards = [];
 let pyramidCards = { level1: [], level2: [], level3: [] };
@@ -78,14 +79,13 @@ const parseCSV = (csvText) => {
   });
 };
 
-const loadCards = async () => {
+const loadCards = () => {
   try {
-    const response = await fetch('/splendor_cards.csv');
-    const csvText = await response.text();
-    allCards = parseCSV(csvText);
+    allCards = parseCSV(cardsCsv);
   } catch (error) {
-    console.error('Failed to load cards:', error);
-    // Fallback to empty arrays if CSV can't be loaded
+    console.error('Failed to parse cards:', error);
+    // Fallback to empty arrays if CSV can't be parsed
+    allCards = [];
   }
 };
 
@@ -207,11 +207,16 @@ const placeTokensOnBoard = () => {
       gameState.board[row][col] = token;
     }
   });
+  
+  // Clear the bag since all tokens are now on the board (bag only contains tokens returned from purchases)
+  Object.keys(gameState.bag).forEach(color => {
+    gameState.bag[color] = 0;
+  });
 };
 
-const initializeGame = async () => {
-  // Load cards from CSV first
-  await loadCards();
+const initializeGame = () => {
+  // Load cards from inlined CSV
+  loadCards();
   
   // Initialize game components
   initializeDecks();
@@ -1185,10 +1190,14 @@ const finalizePurchaseWithSelection = () => {
   const plan = computePaymentPlanWithGold(selectedCard, playerId, paymentState.goldAssignments);
   if (!plan.valid) return;
   const player = gameState.players[playerId];
-  // Deduct tokens according to computed plan
+  // Deduct tokens according to computed plan and return them to bag
   ['gold', 'pearl', ...purchaseColors].forEach(color => {
     const spend = plan.spend[color] || 0;
-    if (spend > 0) player.tokens[color] = Math.max(0, (player.tokens[color] || 0) - spend);
+    if (spend > 0) {
+      player.tokens[color] = Math.max(0, (player.tokens[color] || 0) - spend);
+      // Return spent tokens to the bag
+      gameState.bag[color] = (gameState.bag[color] || 0) + spend;
+    }
   });
   // Grant card: handle reserve vs pyramid source
   if (paymentState && paymentState.context && paymentState.context.fromReserve) {
@@ -1527,6 +1536,7 @@ const generateGameLayout = () => {
           <div class="modal-overlay card-modal-overlay" id="token-selection-modal" style="display: none;">
             <div class="modal-content card-detail-content">
               <div class="modal-body">
+                <button id="refill-board-btn" class="btn-refill" onclick="refillBoard()" title="Refill board from bag">Refill</button>
                 <div class="token-selection-content" id="token-board-container">
                   ${generateTokenBoard(220)}
                   <div id="token-click-overlays">${generateTokenOverlays()}</div>
@@ -2139,10 +2149,92 @@ const confirmTokenSelection = () => {
   renderGame();
 };
 
+// Generate spiral positions from center (2,2) outward clockwise for 5x5 board
+// Returns array of [row, col] positions in order 1-25
+// Uses the same spiral pattern as getSpiralOrder for consistency
+const generateSpiralPositions = () => {
+  return getSpiralOrder(5);
+};
+
+// Check if bag has any tokens
+const isBagEmpty = () => {
+  return Object.values(gameState.bag).every(count => count === 0);
+};
+
+// Convert bag object to flat array of token types
+const bagToArray = () => {
+  const tokens = [];
+  Object.keys(gameState.bag).forEach(color => {
+    for (let i = 0; i < (gameState.bag[color] || 0); i++) {
+      tokens.push(color);
+    }
+  });
+  return tokens;
+};
+
+// Shuffle array using Fisher-Yates algorithm
+const shuffleArray = (array) => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
+// Refill board from bag in spiral order
+const refillBoard = () => {
+  if (isBagEmpty()) {
+    return;
+  }
+  
+  // Get all tokens from bag as flat array and shuffle
+  const bagTokens = bagToArray();
+  const shuffled = shuffleArray(bagTokens);
+  
+  // Get spiral positions
+  const spiralPositions = generateSpiralPositions();
+  
+  // Clear bag
+  Object.keys(gameState.bag).forEach(color => {
+    gameState.bag[color] = 0;
+  });
+  
+  // Fill empty spaces on board in spiral order
+  let tokenIndex = 0;
+  for (const [row, col] of spiralPositions) {
+    // Only fill if space is empty and we have tokens
+    if (!gameState.board[row][col] && tokenIndex < shuffled.length) {
+      gameState.board[row][col] = shuffled[tokenIndex];
+      tokenIndex++;
+    }
+  }
+  
+  // Re-render token board if modal is open
+  const modal = document.getElementById('token-selection-modal');
+  if (modal && modal.style.display === 'flex') {
+    renderTokenBoard();
+    // Update refill button disabled state
+    updateRefillButtonState();
+  }
+  
+  // Re-render game
+  renderGame();
+};
+
+// Update refill button disabled state
+const updateRefillButtonState = () => {
+  const refillBtn = document.getElementById('refill-board-btn');
+  if (refillBtn) {
+    refillBtn.disabled = isBagEmpty();
+  }
+};
+
 // Expose to global scope for onclick handlers
 window.buySelectedCard = buySelectedCard;
 window.reserveSelectedCard = reserveSelectedCard;
 window.confirmTokenSelection = confirmTokenSelection;
+window.refillBoard = refillBoard;
 // Deprecated: payment now renders inline in the same modal
 
 // Close any open popover on escape key
@@ -2188,6 +2280,7 @@ const attachPopoverListeners = () => {
         // Attach token board listeners after modal is shown
         setTimeout(() => {
           attachTokenBoardListeners();
+          updateRefillButtonState();
         }, 100);
       } else {
         openPopover(modalId);
@@ -2207,8 +2300,8 @@ const renderGame = () => {
 };
 
 // Initialize the game
-const init = async () => {
-  await initializeGame();
+const init = () => {
+  initializeGame();
   
   console.log('Game state initialized:', {
     totalCards: allCards.length,
