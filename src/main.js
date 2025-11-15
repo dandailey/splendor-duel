@@ -363,6 +363,88 @@ const generateGemTokenIcon = (color, size = 24) => {
 
 let goldIdCounter = 0;
 
+// Generate stacked icons for scrolls, pearls, or gold
+// Icons stack with topmost on right, duplicates peeking from underneath and to the right
+const generateStackedIcons = (type, count, size = 24) => {
+  if (count === 0) return '';
+  
+  // Icons overlap by 40%, so 60% is visible
+  const overlapPercent = 0.4;
+  const visibleWidth = size * (1 - overlapPercent);
+  
+  const icons = [];
+  for (let i = 0; i < count; i++) {
+    let iconSvg = '';
+    if (type === 'scroll') {
+      iconSvg = `<span class="privilege-scroll-emoji" style="font-size: ${size}px;">🗞️</span>`;
+    } else if (type === 'pearl') {
+      iconSvg = generatePearlIcon(size);
+    } else if (type === 'gold') {
+      iconSvg = generateGoldIcon(size);
+    }
+    
+    // Topmost icon (last one, i = count - 1) is on the right
+    // Earlier icons peek from underneath and to the left
+    // First icon (i=0) is leftmost, last icon (i=count-1) is rightmost and on top
+    // Horizontal only, no vertical offset
+    const offsetX = i * visibleWidth;
+    const zIndex = i + 1; // Later icons (rightmost) have higher z-index (on top)
+    
+    // White glow: thin, starting opaque and quickly dissipating
+    // Use multiple shadows for a more visible glow effect
+    const glowFilter = 'drop-shadow(0 0 1px rgba(255, 255, 255, 1)) drop-shadow(0 0 2px rgba(255, 255, 255, 0.8)) drop-shadow(0 0 3px rgba(255, 255, 255, 0.4))';
+    
+    icons.push(`
+      <div style="
+        position: absolute;
+        display: inline-block;
+        left: ${offsetX}px;
+        top: 0px;
+        z-index: ${zIndex};
+        filter: ${glowFilter};
+      ">
+        ${iconSvg}
+      </div>
+    `);
+  }
+  
+  // Container needs enough width to show all stacked icons
+  // Last icon is at offsetX = (count-1) * visibleWidth, plus its full size
+  const containerWidth = (count - 1) * visibleWidth + size;
+  const containerHeight = size;
+  
+  return `<div style="display: inline-block; position: relative; width: ${containerWidth}px; height: ${containerHeight}px; vertical-align: middle;">${icons.join('')}</div>`;
+};
+
+// Generate the resource icons section (scrolls, pearls, gold)
+// Returns HTML for right-aligned icons with proper stacking
+const generateResourceIcons = (playerId, iconSize = 24) => {
+  const player = gameState.players[playerId];
+  const scrolls = player.privileges || 0;
+  const pearls = player.tokens.pearl || 0;
+  const gold = player.tokens.gold || 0;
+  
+  // Only show if at least one resource exists
+  if (scrolls === 0 && pearls === 0 && gold === 0) {
+    return '';
+  }
+  
+  const icons = [];
+  
+  // Order: scrolls (leftmost), pearls (middle), gold (rightmost)
+  if (scrolls > 0) {
+    icons.push(generateStackedIcons('scroll', scrolls, iconSize));
+  }
+  if (pearls > 0) {
+    icons.push(generateStackedIcons('pearl', pearls, iconSize));
+  }
+  if (gold > 0) {
+    icons.push(generateStackedIcons('gold', gold, iconSize));
+  }
+  
+  return `<div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">${icons.join('')}</div>`;
+};
+
 const generateGoldIcon = (size = 24) => {
   const id = goldIdCounter++;
   const gradientId = `goldGradient${id}`;
@@ -918,10 +1000,16 @@ const computePaymentPlanWithGold = (card, playerId, goldAssignments = []) => {
   const { cards } = getPlayerCards(playerId);
   const spend = { gold: 0, pearl: 0, blue: 0, white: 0, green: 0, red: 0, black: 0 };
 
-  // Needs after permanent card discounts
-  const needs = { pearl: card.costs.pearl || 0 };
+  // Total costs (before discounts)
+  const totalCosts = { pearl: card.costs.pearl || 0 };
   purchaseColors.forEach(color => {
-    needs[color] = Math.max(0, (card.costs[color] || 0) - (cards[color] || 0));
+    totalCosts[color] = card.costs[color] || 0;
+  });
+
+  // Needs after permanent card discounts
+  const needs = { pearl: totalCosts.pearl };
+  purchaseColors.forEach(color => {
+    needs[color] = Math.max(0, totalCosts[color] - (cards[color] || 0));
   });
 
   // Count gold assignments per kind
@@ -930,11 +1018,16 @@ const computePaymentPlanWithGold = (card, playerId, goldAssignments = []) => {
     if (kind && assigned.hasOwnProperty(kind)) assigned[kind]++;
   });
 
-  // Apply gold to cover assigned kinds up to their needs
+  // Apply gold to cover assigned kinds
+  // Allow gold to be used for any color with a cost, but only use what's needed
+  // This lets users choose gold over tokens even when they have enough tokens
   Object.keys(assigned).forEach(kind => {
-    const use = Math.min(assigned[kind], needs[kind] || 0);
-    needs[kind] = Math.max(0, (needs[kind] || 0) - use);
-    spend.gold += use;
+    if (assigned[kind] > 0 && totalCosts[kind] > 0) {
+      // Use gold for this kind, but only up to what's actually needed
+      const goldToUse = Math.min(assigned[kind], needs[kind] || 0);
+      needs[kind] = Math.max(0, (needs[kind] || 0) - goldToUse);
+      spend.gold += goldToUse;
+    }
   });
 
   // Cover remaining needs with player's matching tokens
@@ -1067,6 +1160,14 @@ const renderPaymentContent = () => {
     colorNeed[c] = remaining;
   });
   const pearlRemaining = Math.max(0, (costs.pearl || 0) - (player.tokens.pearl || 0));
+  
+  // Show ALL colors with costs as options for gold tokens (not just those with deficits)
+  // This allows using gold even when you have enough cards/tokens
+  const kindsWithCosts = [
+    ...purchaseColors.filter(c => (costs[c] || 0) > 0),
+    ...((costs.pearl || 0) > 0 ? ['pearl'] : [])
+  ];
+  
   const kindsNeeded = [
     ...purchaseColors.filter(c => colorNeed[c] > 0),
     ...(pearlRemaining > 0 ? ['pearl'] : [])
@@ -1105,11 +1206,12 @@ const renderPaymentContent = () => {
     const goldCount = player.tokens.gold || 0;
     const headerText = goldCount > 1 ? 'Use your gold tokens:' : 'Use your gold token:';
     const rows = [];
-    // Options per row are the kinds still needed
+    // Options per row are ALL kinds with costs (not just those with deficits)
+    // This allows using gold even when you have enough cards/tokens
     const optionIcon = (kind) => kind === 'pearl' ? generatePearlIcon(18) : generateGemTokenIcon(kind, 18);
     for (let i = 0; i < goldCount; i++) {
       const current = paymentState.goldAssignments[i];
-      const options = kindsNeeded.map(kind => {
+      const options = kindsWithCosts.map(kind => {
         const isSelected = current === kind;
         const style = isSelected ? 'outline: 2px solid #4a90e2; box-shadow: 0 0 6px rgba(74,144,226,.6); background: rgba(255,255,255,.06);' : 'opacity:.7;';
         return `<span class="gold-option" data-row="${i}" data-kind="${kind}" style="display:inline-flex; width:24px; height:24px; margin:2px; align-items:center; justify-content:center; border-radius:6px; cursor:pointer; ${style}">${optionIcon(kind)}</span>`;
@@ -1364,23 +1466,7 @@ const generateGameLayout = () => {
               </div>
             </div>
             <div class="opponent-resources">
-              <div class="opponent-hand-header-left">
-                <div class="opponent-player-scrolls">
-                  <span class="privilege-scroll-emoji">🗞️</span>
-                  <span class="privilege-scroll-emoji">🗞️</span>
-                  <span class="privilege-scroll-emoji">🗞️</span>
-                </div>
-              </div>
-            <div class="opponent-hand-header-right">
-              <div class="stat-icon pearl">
-                ${generatePearlIcon(22)}
-                <span class="stat-count pearl-count">${gameState.players.player2.tokens.pearl}</span>
-              </div>
-              <div class="stat-icon gold">
-                ${generateGoldIcon(22)}
-                <span class="stat-count gold-count">${gameState.players.player2.tokens.gold}</span>
-              </div>
-            </div>
+              ${generateResourceIcons('player2', 22)}
             </div>
           </div>
           <div class="opponent-color-cards-row">
@@ -1626,25 +1712,7 @@ const generateGameLayout = () => {
             </div>`;
         })()}
         <div class="player-resources">
-          <div class="hand-header-left">
-            <div class="player-scrolls">
-              <span class="privilege-scroll-emoji">🗞️</span>
-              <span class="privilege-scroll-emoji">🗞️</span>
-              <span class="privilege-scroll-emoji">🗞️</span>
-            </div>
-          </div>
-          <div class="hand-header-right">
-            ${(() => { const p = gameState.currentPlayer === 1 ? 'player1' : 'player2'; return `
-              <div class=\"stat-icon pearl\">
-                ${generatePearlIcon(24)}
-                <span class=\"stat-count pearl-count\">${gameState.players[p].tokens.pearl}</span>
-              </div>
-              <div class=\"stat-icon gold\">
-                ${generateGoldIcon(24)}
-                <span class=\"stat-count gold-count\">${gameState.players[p].tokens.gold}</span>
-              </div>
-            `; })()}
-          </div>
+          ${(() => { const p = gameState.currentPlayer === 1 ? 'player1' : 'player2'; return generateResourceIcons(p, 24); })()}
         </div>
       </div>
 
@@ -1702,8 +1770,9 @@ const populateReservedModal = () => {
 
   if (reserves.length === 0) {
     modalBody.innerHTML = `
-      <div style="display:flex; align-items:center; justify-content:center; height:100%;">
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:20px;">
         <div style="color:#ddd; font-style:italic;">You have no reserved cards.</div>
+        <button onclick="closePopover('reserved-modal')" class="action-button cancel-button">Close</button>
       </div>
     `;
     return;

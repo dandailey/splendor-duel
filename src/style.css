@@ -413,6 +413,7 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .main-display-container {
@@ -1525,14 +1526,11 @@ body {
   background: var(--opponent-area-bg);
 }
 
-.player-resources {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-}
-
+/* Grid layout only for compact player area views, not the main stats bar */
 .player-area.compact .player-resources {
+  display: grid;
   grid-template-columns: 1fr 1fr 1fr;
+  gap: 15px;
 }
 
 .resource-section {
