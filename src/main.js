@@ -32,6 +32,7 @@ const gameState = {
   },
   board: Array(5).fill(null).map(() => Array(5).fill(null)),
   royalCards: [],
+  scrollPool: 3, // Total scrolls available (max 3)
   players: {
     player1: {
       tokens: {
@@ -63,6 +64,14 @@ const gameState = {
     }
   },
   currentPlayer: 1
+};
+
+// Turn switching system (isolated for future changes)
+// Tracks which player is displayed as "you" (bottom) vs "opponent" (top)
+// This is separate from gameState.currentPlayer which tracks actual game state
+const turnDisplayState = {
+  activePlayerId: 'player1', // Player shown at bottom as "your hand"
+  opponentPlayerId: 'player2' // Player shown at top as "opponent"
 };
 
 const parseCSV = (csvText) => {
@@ -214,6 +223,27 @@ const placeTokensOnBoard = () => {
   });
 };
 
+// Scroll mechanics
+const awardScroll = (playerId) => {
+  // If scrolls are available in the pool, give one to the player
+  if (gameState.scrollPool > 0) {
+    gameState.scrollPool--;
+    gameState.players[playerId].privileges = (gameState.players[playerId].privileges || 0) + 1;
+  } else {
+    // No scrolls left - steal from the other player
+    const otherPlayerId = playerId === 'player1' ? 'player2' : 'player1';
+    const otherPlayer = gameState.players[otherPlayerId];
+    
+    if (otherPlayer.privileges > 0) {
+      otherPlayer.privileges--;
+      gameState.players[playerId].privileges = (gameState.players[playerId].privileges || 0) + 1;
+    } else {
+      // Other player has no scrolls either - still award (edge case)
+      gameState.players[playerId].privileges = (gameState.players[playerId].privileges || 0) + 1;
+    }
+  }
+};
+
 const initializeGame = () => {
   // Load cards from inlined CSV
   loadCards();
@@ -224,13 +254,14 @@ const initializeGame = () => {
   initializePyramid();
   placeTokensOnBoard();
   
-  // Randomly choose first player (player 2 gets 1 privilege)
+  // Randomly choose first player (non-first player gets a scroll)
   gameState.currentPlayer = Math.random() < 0.5 ? 1 : 2;
-  if (gameState.currentPlayer === 1) {
-    gameState.players.player2.privileges = 1;
-  } else {
-    gameState.players.player1.privileges = 1;
-  }
+  const nonFirstPlayerId = gameState.currentPlayer === 1 ? 'player2' : 'player1';
+  awardScroll(nonFirstPlayerId);
+  
+  // Initialize turn display state to match game state
+  turnDisplayState.activePlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  turnDisplayState.opponentPlayerId = gameState.currentPlayer === 1 ? 'player2' : 'player1';
 };
 
 let cardIdCounter = 0;
@@ -1325,6 +1356,7 @@ const finalizePurchaseWithSelection = () => {
   purchaseContext = null;
   closePopover('card-detail-popover');
   renderGame();
+  showTurnCompletionDialog();
 };
 
 const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
@@ -1404,11 +1436,90 @@ const renderPlayerHand = (playerId) => {
 };
 
 const renderHandDisplay = () => {
-  const playerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const handDisplay = document.getElementById('player-hand');
   if (handDisplay) {
-    handDisplay.innerHTML = renderPlayerHand(playerId);
+    handDisplay.innerHTML = renderPlayerHand(turnDisplayState.activePlayerId);
   }
+};
+
+// Render opponent stats for the top bar
+const renderOpponentStats = () => {
+  const opponentId = turnDisplayState.opponentPlayerId;
+  const { cards, points } = getPlayerCards(opponentId);
+  const player = gameState.players[opponentId];
+  const stats = getPlayerVictoryStats(opponentId);
+  const colors = ['blue', 'white', 'green', 'red', 'black'];
+  
+  let colorCardsHtml = '';
+  colors.forEach(color => {
+    const cardCount = cards[color] || 0;
+    const tokenCount = player.tokens[color] || 0;
+    const pointValue = points[color] || 0;
+    
+    let tokenDotsHtml = '';
+    if (tokenCount > 0) {
+      const dots = [];
+      for (let i = 0; i < Math.min(tokenCount, 4); i++) {
+        dots.push(`<span class="opponent-token-dot ${color}"></span>`);
+      }
+      tokenDotsHtml = `<div class="opponent-token-dots">${dots.join('')}</div>`;
+    }
+    
+    let wildIconHtml = '';
+    if (color === 'black' && cardCount > 0) {
+      wildIconHtml = `
+        <div class="opponent-wild-token-icon">
+          <svg viewBox="0 0 24 24" width="24" height="24">
+            <polygon points="12,12 12,2 21.6,8.6" fill="#2c3e50"/>
+            <polygon points="12,12 21.6,8.6 18.1,20.3" fill="#f0f0f0" stroke="#ccc"/>
+            <polygon points="12,12 18.1,20.3 5.9,20.3" fill="#e74c3c"/>
+            <polygon points="12,12 5.9,20.3 2.4,8.6" fill="#7ed321"/>
+            <polygon points="12,12 2.4,8.6 12,2" fill="#4a90e2"/>
+            <polygon points="12,2 21.6,8.6 18.1,20.3 5.9,20.3 2.4,8.6" fill="none" stroke="#333" stroke-width="0.6"/>
+          </svg>
+        </div>
+      `;
+    }
+    
+    colorCardsHtml += `
+      <div class="opponent-color-card ${color}">
+        ${tokenDotsHtml}
+        ${wildIconHtml}
+        <div class="opponent-power-circle ${color}">${cardCount}</div>
+        <div class="opponent-points-value">${pointValue} pts</div>
+      </div>
+    `;
+  });
+  
+  const reserveCount = player.reserves.length;
+  
+  return `
+    <div class="opponent-resources-bar">
+      <div class="opponent-victory-tracker-left">
+        <div class="victory-stat small">
+          <div class="victory-value score-value">${stats.totalPoints}</div>
+        </div>
+        <div class="victory-stat small">
+          <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
+          <div class="victory-value overlaid">${stats.totalCrowns}</div>
+        </div>
+        <div class="victory-stat small">
+          <div class="victory-icon-backdrop color ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"></div>
+          <div class="victory-value overlaid">${stats.maxPoints}</div>
+        </div>
+      </div>
+      <div class="opponent-resources">
+        ${generateResourceIcons(opponentId, 22)}
+      </div>
+    </div>
+    <div class="opponent-color-cards-row">
+      ${colorCardsHtml}
+      <div class="opponent-reserved-section">
+        <div class="opponent-reserved-count">${reserveCount}</div>
+        <div class="opponent-reserved-label">Res</div>
+      </div>
+    </div>
+  `;
 };
 
 const generateResourceSummary = () => {
@@ -1451,90 +1562,7 @@ const generateGameLayout = () => {
           </div>
         </div>
         <div class="opponent-stats-container" id="opponent-stats" data-clickable="popover" data-popover="opponent-hand-modal">
-          <div class="opponent-resources-bar">
-            <div class="opponent-victory-tracker-left">
-              <div class="victory-stat small">
-                <div class="victory-value score-value">0</div>
-              </div>
-              <div class="victory-stat small">
-                <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
-                <div class="victory-value overlaid">0</div>
-              </div>
-              <div class="victory-stat small">
-                <div class="victory-icon-backdrop color red"></div>
-                <div class="victory-value overlaid">0</div>
-              </div>
-            </div>
-            <div class="opponent-resources">
-              ${generateResourceIcons('player2', 22)}
-            </div>
-          </div>
-          <div class="opponent-color-cards-row">
-            <div class="opponent-color-card blue">
-              <div class="opponent-token-dots">
-                <span class="opponent-token-dot blue"></span>
-                <span class="opponent-token-dot blue"></span>
-              </div>
-              <div class="opponent-power-circle blue">0</div>
-              <div class="opponent-points-value">0 pts</div>
-            </div>
-            
-            <div class="opponent-color-card white">
-              <div class="opponent-token-dots">
-                <span class="opponent-token-dot white"></span>
-              </div>
-              <div class="opponent-power-circle white">0</div>
-              <div class="opponent-points-value">0 pts</div>
-            </div>
-            
-            <div class="opponent-color-card green">
-              <div class="opponent-token-dots">
-              </div>
-              <div class="opponent-power-circle green">0</div>
-              <div class="opponent-points-value">0 pts</div>
-            </div>
-            
-            <div class="opponent-color-card red">
-              <div class="opponent-token-dots">
-                <span class="opponent-token-dot red"></span>
-                <span class="opponent-token-dot red"></span>
-                <span class="opponent-token-dot red"></span>
-                <span class="opponent-token-dot red"></span>
-              </div>
-              <div class="opponent-power-circle red">0</div>
-              <div class="opponent-points-value">0 pts</div>
-            </div>
-            
-            <div class="opponent-color-card black">
-              <div class="opponent-wild-token-icon">
-                <svg viewBox="0 0 24 24" width="24" height="24">
-                  <!-- Black section (top) -->
-                  <polygon points="12,12 12,2 21.6,8.6" fill="#2c3e50"/>
-                  
-                  <!-- White section (top-right) -->
-                  <polygon points="12,12 21.6,8.6 18.1,20.3" fill="#f0f0f0" stroke="#ccc"/>
-                  
-                  <!-- Red section (bottom-right) -->
-                  <polygon points="12,12 18.1,20.3 5.9,20.3" fill="#e74c3c"/>
-                  
-                  <!-- Green section (bottom-left) -->
-                  <polygon points="12,12 5.9,20.3 2.4,8.6" fill="#7ed321"/>
-                  
-                  <!-- Blue section (top-left) -->
-                  <polygon points="12,12 2.4,8.6 12,2" fill="#4a90e2"/>
-                  
-                  <polygon points="12,2 21.6,8.6 18.1,20.3 5.9,20.3 2.4,8.6" fill="none" stroke="#333" stroke-width="0.6"/>
-                </svg>
-              </div>
-              <div class="opponent-power-circle black">0</div>
-              <div class="opponent-points-value">0 pts</div>
-            </div>
-            
-            <div class="opponent-reserved-section">
-              <div class="opponent-reserved-count">0</div>
-              <div class="opponent-reserved-label">Res</div>
-            </div>
-          </div>
+          ${renderOpponentStats()}
         </div>
       </div>
 
@@ -1622,14 +1650,23 @@ const generateGameLayout = () => {
           <div class="modal-overlay card-modal-overlay" id="token-selection-modal" style="display: none;">
             <div class="modal-content card-detail-content">
               <div class="modal-body">
-                <button id="refill-board-btn" class="btn-refill" onclick="refillBoard()" title="Refill board from bag">Refill</button>
-                <div class="token-selection-content" id="token-board-container">
-                  ${generateTokenBoard(220)}
-                  <div id="token-click-overlays">${generateTokenOverlays()}</div>
+                <div class="token-modal-layout" id="token-modal-layout">
+                  <div class="token-board-section">
+                    <div class="token-board-wrapper">
+                      <div class="token-selection-content" id="token-board-container">
+                        ${generateTokenBoard(220)}
+                        <div id="token-click-overlays">${generateTokenOverlays()}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="scroll-usage-section" id="scroll-usage-section">
+                    <!-- Scroll display will be rendered here -->
+                  </div>
                 </div>
                 <div class="token-modal-actions">
                   <button class="btn-cancel" onclick="closePopover('token-selection-modal')">Cancel</button>
                   <button class="btn-confirm" onclick="confirmTokenSelection()">Confirm</button>
+                  <button id="refill-board-btn" class="btn-refill" onclick="refillBoard()" title="Refill board from bag">Refill</button>
                 </div>
               </div>
             </div>
@@ -1641,6 +1678,17 @@ const generateGameLayout = () => {
               <div class="modal-body">
                 <!-- Content will be injected -->
               </div>
+            </div>
+          </div>
+
+          <!-- Turn Completion Dialog -->
+          <div class="modal-overlay card-modal-overlay" id="turn-completion-dialog" style="display: none;">
+            <div class="modal-content turn-completion-content">
+              <div class="turn-completion-message">
+                <h3>Your turn has been completed</h3>
+                <p>Click below to switch players</p>
+              </div>
+              <button class="action-button switch-players-button" id="switch-players-btn">Switch Players</button>
             </div>
           </div>
           
@@ -1694,8 +1742,7 @@ const generateGameLayout = () => {
       <!-- Player Stats Section -->
       <div class="player-stats-bar">
         ${(() => {
-          const playerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
-          const stats = getPlayerVictoryStats(playerId);
+          const stats = getPlayerVictoryStats(turnDisplayState.activePlayerId);
           return `
             <div class="victory-tracker-left">
               <div class="victory-stat large">
@@ -1712,13 +1759,13 @@ const generateGameLayout = () => {
             </div>`;
         })()}
         <div class="player-resources">
-          ${(() => { const p = gameState.currentPlayer === 1 ? 'player1' : 'player2'; return generateResourceIcons(p, 24); })()}
+          ${generateResourceIcons(turnDisplayState.activePlayerId, 24)}
         </div>
       </div>
 
       <!-- Global Hand Display (always at bottom) -->
       <div class="global-hand-display" id="player-hand">
-        ${(() => { const p = gameState.currentPlayer === 1 ? 'player1' : 'player2'; return renderPlayerHand(p); })()}
+        ${renderPlayerHand(turnDisplayState.activePlayerId)}
       </div>
   </div>
   `;
@@ -1758,6 +1805,9 @@ const closePopover = (id) => {
     selectedTokens = [];
     selectionError = null;
     hideSelectionError();
+    scrollSelectionMode = false;
+    scrollSelectedToken = null;
+    boardWasRefilled = false;
   }
 };
 
@@ -1917,11 +1967,15 @@ const reserveSelectedCard = () => {
   closePopover('card-detail-popover');
   // Re-render the game
   renderGame();
+  showTurnCompletionDialog();
 };
 
 // Token selection state
 let selectedTokens = [];
 let selectionError = null;
+let scrollSelectionMode = false;
+let scrollSelectedToken = null;
+let boardWasRefilled = false;
 
 // Toggle token selection
 const toggleTokenSelection = (row, col) => {
@@ -1937,6 +1991,16 @@ const toggleTokenSelection = (row, col) => {
     return;
   }
   
+  // Handle scroll selection mode
+  if (scrollSelectionMode) {
+    // In scroll mode, select a single token
+    scrollSelectedToken = { row, col, token };
+    renderScrollUsageSection();
+    renderTokenBoard();
+    return;
+  }
+  
+  // Normal token selection mode
   // Toggle selection
   const index = selectedTokens.findIndex(t => t.row === row && t.col === col);
   if (index !== -1) {
@@ -2114,6 +2178,8 @@ const generateTokenOverlays = () => {
     for (let col = 0; col < 5; col++) {
       const token = gameState.board[row][col];
       const isSelected = selectedTokens.some(t => t.row === row && t.col === col);
+      const isScrollSelected = scrollSelectionMode && scrollSelectedToken && 
+                               scrollSelectedToken.row === row && scrollSelectedToken.col === col;
       const isGold = token === 'gold';
       const isEmpty = !token;
       
@@ -2123,6 +2189,7 @@ const generateTokenOverlays = () => {
       
       let classes = 'token-overlay';
       if (isSelected) classes += ' selected';
+      if (isScrollSelected) classes += ' scroll-selected';
       if (isGold) classes += ' gold-token';
       if (isEmpty) classes += ' empty';
       
@@ -2159,7 +2226,14 @@ const renderTokenBoard = () => {
       overlayContainer.innerHTML = generateTokenOverlays();
     }
     
+    // Show/hide normal token selection buttons based on scroll mode
+    const tokenActions = document.querySelector('.token-modal-actions');
+    if (tokenActions) {
+      tokenActions.style.display = scrollSelectionMode ? 'none' : 'flex';
+    }
+    
     attachTokenBoardListeners();
+    renderScrollUsageSection();
   }
 };
 
@@ -2189,6 +2263,11 @@ const attachTokenBoardListeners = () => {
 
 // Confirm token selection
 const confirmTokenSelection = () => {
+  // Don't allow normal token selection if in scroll mode
+  if (scrollSelectionMode) {
+    return;
+  }
+  
   const validation = validateTokenSelection();
   
   if (!validation.valid) {
@@ -2198,9 +2277,33 @@ const confirmTokenSelection = () => {
   
   // Add tokens to player's hand
   const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
+  
+  // Track token colors for scroll checks
+  let pearlCount = 0;
+  
   selectedTokens.forEach(({ token }) => {
     gameState.players[currentPlayer].tokens[token]++;
+    
+    // Count pearls for scroll check
+    if (token === 'pearl') {
+      pearlCount++;
+    }
   });
+  
+  // Check for scroll conditions
+  // 1. Three matching color tokens (exactly 3 tokens, all same color)
+  if (selectedTokens.length === 3) {
+    const tokenTypes = selectedTokens.map(({ token }) => token).filter(t => t !== 'gold');
+    if (tokenTypes.length === 3 && tokenTypes.every(t => t === tokenTypes[0])) {
+      awardScroll(otherPlayer);
+    }
+  }
+  
+  // 2. Two pearls
+  if (pearlCount === 2) {
+    awardScroll(otherPlayer);
+  }
   
   // Remove tokens from board
   selectedTokens.forEach(({ row, col }) => {
@@ -2216,6 +2319,7 @@ const confirmTokenSelection = () => {
   
   // Re-render game to show updated tokens
   renderGame();
+  showTurnCompletionDialog();
 };
 
 // Generate spiral positions from center (2,2) outward clockwise for 5x5 board
@@ -2279,16 +2383,159 @@ const refillBoard = () => {
     }
   }
   
-  // Re-render token board if modal is open
+  // Award scroll to the other player when board is refilled
+  const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
+  awardScroll(otherPlayer);
+  
+  // Mark that board was refilled (disables scroll usage)
+  boardWasRefilled = true;
+  
+  // Re-render token board if modal is open (keep it open)
   const modal = document.getElementById('token-selection-modal');
-  if (modal && modal.style.display === 'flex') {
+  const wasOpen = modal && modal.style.display === 'flex';
+  
+  if (wasOpen) {
     renderTokenBoard();
-    // Update refill button disabled state
     updateRefillButtonState();
+    renderScrollUsageSection();
   }
   
-  // Re-render game
+  // Update the main game display
+  // Preserve modal open state
   renderGame();
+  
+  // Re-open modal if it was open
+  if (wasOpen) {
+    setTimeout(() => {
+      const modalAfter = document.getElementById('token-selection-modal');
+      if (modalAfter) {
+        modalAfter.style.display = 'flex';
+        attachTokenBoardListeners();
+        updateRefillButtonState();
+        renderScrollUsageSection();
+      }
+    }, 10);
+  }
+};
+
+// Render scroll usage section
+const renderScrollUsageSection = () => {
+  const section = document.getElementById('scroll-usage-section');
+  const layout = document.getElementById('token-modal-layout');
+  if (!section || !layout) return;
+  
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const player = gameState.players[currentPlayerId];
+  const scrollCount = player.privileges || 0;
+  
+  const hasScrolls = scrollCount > 0;
+  layout.classList.toggle('has-scrolls', hasScrolls);
+  
+  if (!hasScrolls) {
+    section.innerHTML = '';
+    section.style.display = 'none';
+    return;
+  }
+  
+  section.style.display = 'flex';
+  
+  if (scrollSelectionMode) {
+    // Scroll selection mode
+    let html = '<div class="scroll-selection-mode">';
+    html += '<div class="scroll-selection-label">Choose your token</div>';
+    
+    if (scrollSelectedToken) {
+      html += '<button class="btn-confirm-scroll" id="confirm-scroll-btn" onclick="confirmScrollSelection()">Confirm</button>';
+    }
+    
+    html += '<button class="btn-cancel-scroll" onclick="cancelScrollSelection()">Cancel</button>';
+    html += '</div>';
+    section.innerHTML = html;
+  } else {
+    // Normal scroll display
+    let html = '<div class="scroll-display-container">';
+    html += '<div class="scroll-display-label">Use a scroll:</div>';
+    html += '<div class="scroll-icons-container">';
+    const iconSize = scrollCount > 2 ? 24 : 28;
+    
+    for (let i = 0; i < scrollCount; i++) {
+      const disabled = boardWasRefilled ? 'disabled' : '';
+      html += `<div class="scroll-icon ${disabled}" data-scroll-index="${i}" onclick="${disabled ? '' : 'enterScrollSelectionMode()'}">`;
+      html += `<span class="privilege-scroll-emoji" style="font-size: ${iconSize}px;">🗞️</span>`;
+      html += '</div>';
+    }
+    
+    html += '</div>';
+    
+    if (boardWasRefilled) {
+      html += '<div class="scroll-disabled-message">You may not use scrolls after refilling the board</div>';
+    }
+    
+    html += '</div>';
+    section.innerHTML = html;
+  }
+};
+
+// Enter scroll selection mode
+const enterScrollSelectionMode = () => {
+  scrollSelectionMode = true;
+  scrollSelectedToken = null;
+  renderScrollUsageSection();
+  // Update token overlays to allow single token selection
+  renderTokenBoard();
+};
+
+// Cancel scroll selection
+const cancelScrollSelection = () => {
+  scrollSelectionMode = false;
+  scrollSelectedToken = null;
+  renderScrollUsageSection();
+  renderTokenBoard();
+};
+
+// Confirm scroll selection
+const confirmScrollSelection = () => {
+  if (!scrollSelectedToken) return;
+  
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const player = gameState.players[currentPlayerId];
+  
+  // Add token to player's hand
+  player.tokens[scrollSelectedToken.token]++;
+  
+  // Remove token from board
+  gameState.board[scrollSelectedToken.row][scrollSelectedToken.col] = null;
+  
+  // Reduce scroll count
+  player.privileges = Math.max(0, (player.privileges || 0) - 1);
+  
+  // Reset scroll selection state
+  scrollSelectedToken = null;
+  scrollSelectionMode = false;
+  
+  // Re-render board and scroll section (board stays open)
+  renderTokenBoard();
+  renderScrollUsageSection();
+  
+  // Update the main game display to reflect new token count
+  // Preserve modal open state
+  const modal = document.getElementById('token-selection-modal');
+  const wasOpen = modal && modal.style.display === 'flex';
+  renderGame();
+  
+  // Re-open modal if it was open
+  if (wasOpen) {
+    setTimeout(() => {
+      const modalAfter = document.getElementById('token-selection-modal');
+      if (modalAfter) {
+        modalAfter.style.display = 'flex';
+        attachTokenBoardListeners();
+        updateRefillButtonState();
+        renderScrollUsageSection();
+      }
+    }, 10);
+  }
 };
 
 // Update refill button disabled state
@@ -2304,16 +2551,118 @@ window.buySelectedCard = buySelectedCard;
 window.reserveSelectedCard = reserveSelectedCard;
 window.confirmTokenSelection = confirmTokenSelection;
 window.refillBoard = refillBoard;
+window.enterScrollSelectionMode = enterScrollSelectionMode;
+window.cancelScrollSelection = cancelScrollSelection;
+window.confirmScrollSelection = confirmScrollSelection;
 // Deprecated: payment now renders inline in the same modal
 
 // Close any open popover on escape key
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     const openPopovers = document.querySelectorAll(".modal-overlay[style*='flex']");
-    openPopovers.forEach(popover => popover.style.display = "none");
+    openPopovers.forEach(popover => {
+      // Don't close turn completion dialog with ESC - user must click button
+      if (popover.id !== 'turn-completion-dialog') {
+        popover.style.display = "none";
+      }
+    });
   }
 });
 
+
+// Turn switching system functions
+const showTurnCompletionDialog = () => {
+  const dialog = document.getElementById('turn-completion-dialog');
+  if (!dialog) return;
+  
+  // Add class to game container to block interactions
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.add('dialog-blocking');
+  }
+  
+  dialog.style.display = 'flex';
+};
+
+const closeTurnCompletionDialog = () => {
+  const dialog = document.getElementById('turn-completion-dialog');
+  if (dialog) {
+    dialog.style.display = 'none';
+  }
+  
+  // Remove blocking class from game container
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.remove('dialog-blocking');
+  }
+};
+
+const switchPlayers = () => {
+  // Swap the display state
+  const temp = turnDisplayState.activePlayerId;
+  turnDisplayState.activePlayerId = turnDisplayState.opponentPlayerId;
+  turnDisplayState.opponentPlayerId = temp;
+  
+  // Update gameState.currentPlayer to match (for action consistency)
+  // This keeps actions in sync, but display state is separate for future changes
+  gameState.currentPlayer = turnDisplayState.activePlayerId === 'player1' ? 1 : 2;
+  
+  // Add transition class to elements
+  const handDisplay = document.getElementById('player-hand');
+  const opponentStats = document.getElementById('opponent-stats');
+  const playerStats = document.querySelector('.player-stats-bar');
+  
+  if (handDisplay) handDisplay.classList.add('switching');
+  if (opponentStats) opponentStats.classList.add('switching');
+  if (playerStats) playerStats.classList.add('switching');
+  
+  // Wait for transition, then update content
+  setTimeout(() => {
+    // Update opponent stats
+    if (opponentStats) {
+      opponentStats.innerHTML = renderOpponentStats();
+    }
+    
+    // Update player stats
+    if (playerStats) {
+      const stats = getPlayerVictoryStats(turnDisplayState.activePlayerId);
+      const victoryTracker = playerStats.querySelector('.victory-tracker-left');
+      const resources = playerStats.querySelector('.player-resources');
+      
+      if (victoryTracker) {
+        victoryTracker.innerHTML = `
+          <div class="victory-stat large">
+            <div class="victory-value score-value-large">${stats.totalPoints}</div>
+          </div>
+          <div class="victory-stat large">
+            <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
+            <div class="victory-value overlaid">${stats.totalCrowns}</div>
+          </div>
+          <div class="victory-stat large">
+            <div class="victory-icon-backdrop color ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"></div>
+            <div class="victory-value overlaid">${stats.maxPoints}</div>
+          </div>
+        `;
+      }
+      
+      if (resources) {
+        resources.innerHTML = generateResourceIcons(turnDisplayState.activePlayerId, 24);
+      }
+    }
+    
+    // Update hand display
+    if (handDisplay) {
+      handDisplay.innerHTML = renderPlayerHand(turnDisplayState.activePlayerId);
+    }
+    
+    // Remove transition class after a brief delay
+    setTimeout(() => {
+      if (handDisplay) handDisplay.classList.remove('switching');
+      if (opponentStats) opponentStats.classList.remove('switching');
+      if (playerStats) playerStats.classList.remove('switching');
+    }, 50);
+  }, 300); // Match CSS transition duration
+};
 
 // Function to attach popover listeners
 const attachPopoverListeners = () => {
@@ -2345,11 +2694,15 @@ const attachPopoverListeners = () => {
       if (modalId === 'token-selection-modal') {
         selectedTokens = [];
         selectionError = null;
+        scrollSelectionMode = false;
+        scrollSelectedToken = null;
+        boardWasRefilled = false;
         openPopover(modalId);
         // Attach token board listeners after modal is shown
         setTimeout(() => {
           attachTokenBoardListeners();
           updateRefillButtonState();
+          renderScrollUsageSection();
         }, 100);
       } else {
         openPopover(modalId);
@@ -2365,6 +2718,20 @@ const renderGame = () => {
   // Re-attach event listeners
   setTimeout(() => {
     attachPopoverListeners();
+    // Attach turn completion dialog handler
+    const switchBtn = document.getElementById('switch-players-btn');
+    if (switchBtn) {
+      // Remove old handler if exists
+      if (switchBtn._handlerAttached) {
+        switchBtn.removeEventListener('click', switchBtn._clickHandler);
+      }
+      switchBtn._clickHandler = () => {
+        switchPlayers();
+        closeTurnCompletionDialog();
+      };
+      switchBtn.addEventListener('click', switchBtn._clickHandler);
+      switchBtn._handlerAttached = true;
+    }
   }, 10);
 };
 

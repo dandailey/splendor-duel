@@ -1933,9 +1933,163 @@ button.action-trigger {
 /* Token modal specific styling */
 #token-selection-modal .modal-body {
   justify-content: flex-start;
-  padding: 15px 20px 15px 20px;
-  align-items: center;
+  padding: 15px 18px 15px 8px;
+  align-items: flex-start;
   gap: 15px;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.token-modal-layout {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  column-gap: 0;
+  row-gap: 0;
+  max-width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.token-modal-layout.has-scrolls {
+  column-gap: 20px;
+  justify-content: space-between;
+}
+
+.token-board-section {
+  display: flex;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.token-board-wrapper {
+  position: relative;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.scroll-usage-section {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 130px;
+  min-width: 130px;
+  padding: 12px 6px;
+  background: rgba(0, 0, 0, 0.75);
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.token-modal-layout.has-scrolls .scroll-usage-section {
+  display: flex;
+}
+
+.scroll-usage-section .scroll-display-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.scroll-usage-section .scroll-display-label {
+  font-size: 1em;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.scroll-usage-section .scroll-icons-container {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+}
+
+.scroll-usage-section .scroll-icon {
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scroll-usage-section .scroll-icon:hover:not(.disabled) {
+  background: rgba(74, 144, 226, 0.1);
+  transform: scale(1.1);
+}
+
+.scroll-usage-section .scroll-icon.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.scroll-usage-section .scroll-disabled-message {
+  font-size: 0.75em;
+  color: #fff;
+  text-align: center;
+  margin-top: 4px;
+  opacity: 0.8;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.scroll-usage-section .scroll-selection-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.scroll-usage-section .scroll-selection-label {
+  font-size: 1em;
+  font-weight: 600;
+  color: #4a90e2;
+  text-align: center;
+}
+
+.scroll-usage-section .btn-confirm-scroll,
+.scroll-usage-section .btn-cancel-scroll {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.scroll-usage-section .btn-confirm-scroll {
+  background: #4a90e2;
+  color: white;
+}
+
+.scroll-usage-section .btn-confirm-scroll:hover {
+  background: #357abd;
+  transform: translateY(-1px);
+}
+
+.scroll-usage-section .btn-cancel-scroll {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.scroll-usage-section .btn-cancel-scroll:hover {
+  background: #d0d0d0;
+}
+
+.token-overlay.scroll-selected {
+  outline: 3px solid #4a90e2;
+  outline-offset: -3px;
+  background: rgba(74, 144, 226, 0.2);
 }
 
 #token-selection-modal .token-selection-content {
@@ -2939,21 +3093,28 @@ button.action-trigger {
 .token-modal-actions {
   display: flex;
   justify-content: center;
-  gap: 15px;
-  margin-top: 15px;
-  padding: 15px 20px 15px 20px;
+  gap: 10px;
+  padding: 0;
   flex-shrink: 0;
+  flex-wrap: nowrap;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: auto;
 }
 
 .btn-cancel,
-.btn-confirm {
-  padding: 12px 32px;
-  font-size: 16px;
-  font-weight: bold;
+.btn-confirm,
+.btn-refill {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
+  flex: 1;
+  min-width: 0;
+  max-width: none;
 }
 
 .btn-cancel {
@@ -2981,30 +3142,124 @@ button.action-trigger {
 }
 
 .btn-refill {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: bold;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
   background-color: #5cb85c;
   color: white;
-  z-index: 15;
 }
 
 .btn-refill:hover:not(:disabled) {
   background-color: #4cae4c;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 .btn-refill:disabled {
   background-color: #ccc;
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+/* Turn completion dialog */
+#turn-completion-dialog {
+  z-index: 200;
+  pointer-events: auto;
+}
+
+#turn-completion-dialog .modal-content {
+  justify-content: center;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
+/* Block all interactions when turn completion dialog is open */
+.game-container.dialog-blocking * {
+  pointer-events: none;
+}
+
+.game-container.dialog-blocking #turn-completion-dialog,
+.game-container.dialog-blocking #turn-completion-dialog * {
+  pointer-events: auto;
+}
+
+.turn-completion-content {
+  max-width: 320px;
+  width: 90%;
+  padding: 24px;
+  text-align: center;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+}
+
+.turn-completion-message {
+  margin-bottom: 20px;
+}
+
+.turn-completion-message h3 {
+  font-size: 1.4em;
+  margin-bottom: 8px;
+  color: #4a90e2;
+  font-weight: 700;
+}
+
+.turn-completion-message p {
+  font-size: 1em;
+  color: #555;
+  margin: 0;
+  font-weight: 500;
+}
+
+.switch-players-button {
+  width: 100%;
+  padding: 12px 24px;
+  font-size: 1.1em;
+  font-weight: 600;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.switch-players-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
+}
+
+.switch-players-button:active {
+  transform: translateY(0);
+}
+
+/* Transition effects for player switching */
+#player-hand.switching,
+#opponent-stats.switching,
+.player-stats-bar.switching {
+  opacity: 0.3;
+  transform: scale(0.98);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
