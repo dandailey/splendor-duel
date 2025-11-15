@@ -74,6 +74,16 @@ const turnDisplayState = {
   opponentPlayerId: 'player2' // Player shown at top as "opponent"
 };
 
+// Track previous crown counts to detect threshold crossings
+const previousCrownCounts = {
+  player1: 0,
+  player2: 0
+};
+
+// Royal card selection state
+let selectedRoyalCard = null;
+let royalCardSelectionMode = false;
+
 const parseCSV = (csvText) => {
   const lines = csvText.trim().split('\n');
   const headers = lines[0].split(',').map(h => h.trim());
@@ -262,6 +272,10 @@ const initializeGame = () => {
   // Initialize turn display state to match game state
   turnDisplayState.activePlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   turnDisplayState.opponentPlayerId = gameState.currentPlayer === 1 ? 'player2' : 'player1';
+  
+  // Initialize previous crown counts
+  previousCrownCounts.player1 = 0;
+  previousCrownCounts.player2 = 0;
 };
 
 let cardIdCounter = 0;
@@ -628,16 +642,18 @@ const renderCardV2 = (card, levelClass) => {
   cardHTML += '<div class="card-header">';
   cardHTML += '</div>';
   
-  // Upper left section: color circle/triangle, points
-  if (hasColor && !isWild) {
-    const pointsDisplay = card.points > 0 ? `<div class="prestige-points">${card.points}</div>` : '';
-    cardHTML += `<div class="color-circle ${getColorClass(card.color)}">${pointsDisplay}</div>`;
-  } else if (isGrey && card.points > 0) {
-    cardHTML += '<div class="points-corner"></div>';
-    cardHTML += `<div class="prestige-points">${card.points}</div>`;
-  } else if (isWild && card.points > 0) {
-    // Wild cards need points display without color circle
-    cardHTML += `<div class="prestige-points wild-points">${card.points}</div>`;
+  // Upper left section: points (no colored circle for normal colored cards)
+  if (card.points > 0) {
+    if (isWild) {
+      cardHTML += `<div class="prestige-points wild-points">${card.points}</div>`;
+    } else if (isGrey) {
+      cardHTML += '<div class="points-corner"></div>';
+      cardHTML += `<div class="prestige-points">${card.points}</div>`;
+    } else {
+      // For colored cards (including white), show points without circle
+      const whiteClass = card.color === 'white' ? ' white-points' : '';
+      cardHTML += `<div class="prestige-points${whiteClass}">${card.points}</div>`;
+    }
   }
   
   // Upper right section: ability icons and crowns
@@ -731,13 +747,17 @@ const renderCard = (card, levelClass) => {
   cardHTML += '<div class="card-header">';
   cardHTML += '</div>';
   
-  // Upper left section: color circle/triangle, points
-  if (hasColor && !isWild) {
-    const pointsDisplay = card.points > 0 ? `<div class="prestige-points">${card.points}</div>` : '';
-    cardHTML += `<div class="color-circle ${getColorClass(card.color)}">${pointsDisplay}</div>`;
-  } else if (isGrey && card.points > 0) {
-    cardHTML += '<div class="points-corner"></div>';
-    cardHTML += `<div class="prestige-points">${card.points}</div>`;
+  // Upper left section: points (no colored circle for normal colored cards)
+  if (card.points > 0) {
+    if (isWild) {
+      cardHTML += `<div class="prestige-points wild-points">${card.points}</div>`;
+    } else if (isGrey) {
+      cardHTML += '<div class="points-corner"></div>';
+      cardHTML += `<div class="prestige-points">${card.points}</div>`;
+    } else {
+      const whiteClass = card.color === 'white' ? ' white-points' : '';
+      cardHTML += `<div class="prestige-points${whiteClass}">${card.points}</div>`;
+    }
   }
   
   // Upper right section: ability icons and crowns
@@ -1356,7 +1376,7 @@ const finalizePurchaseWithSelection = () => {
   purchaseContext = null;
   closePopover('card-detail-popover');
   renderGame();
-  showTurnCompletionDialog();
+  checkAndShowRoyalCardSelection();
 };
 
 const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
@@ -1566,62 +1586,6 @@ const generateGameLayout = () => {
         </div>
       </div>
 
-      <!-- Royal Cards Modal -->
-      <div class="modal-overlay" id="royal-modal" style="display: none;">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Available Royal Cards</h3>
-            <button class="close-modal" onclick="document.getElementById('royal-modal').style.display='none'">×</button>
-          </div>
-          <div class="royal-cards-view">
-            <div class="royal-card-view">
-              <div class="card royal-card-large">
-                <div class="card-header">
-                  <div class="card-level level-3">3</div>
-                  <div class="crown-icon">${generateCrownIcon(20)}</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+5</div>
-                </div>
-              </div>
-            </div>
-            <div class="royal-card-view">
-              <div class="card royal-card-large">
-                <div class="card-header">
-                  <div class="card-level level-3">3</div>
-                  <div class="crown-icon">${generateCrownIcon(20)}</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+3</div>
-                </div>
-              </div>
-            </div>
-            <div class="royal-card-view">
-              <div class="card royal-card-large">
-                <div class="card-header">
-                  <div class="card-level level-3">3</div>
-                  <div class="crown-icon">${generateCrownIcon(20)}</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+7</div>
-                </div>
-              </div>
-            </div>
-            <div class="royal-card-view">
-              <div class="card royal-card-large">
-                <div class="card-header">
-                  <div class="card-level level-3">3</div>
-                  <div class="crown-icon">${generateCrownIcon(20)}</div>
-                </div>
-                <div style="text-align: center; margin-top: 40px;">
-                  <div class="prestige-points">+4</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Opponent Hand Modal -->
       <div class="modal-overlay" id="opponent-hand-modal" style="display: none;">
         <div class="modal-content">
@@ -1637,6 +1601,15 @@ const generateGameLayout = () => {
 
       <!-- Main Pyramid Area -->
       <div class="pyramid-container">
+          <!-- Royal Cards Modal -->
+          <div class="modal-overlay card-modal-overlay" id="royal-modal" style="display: none;">
+            <div class="modal-content">
+              <div class="modal-body" id="royal-modal-body">
+                <!-- Content will be populated dynamically -->
+              </div>
+            </div>
+          </div>
+
           <!-- Card Detail Popover -->
           <div class="modal-overlay card-modal-overlay" id="card-detail-popover" style="display: none;">
             <div class="modal-content card-detail-content">
@@ -1705,10 +1678,18 @@ const generateGameLayout = () => {
               }).join('')}
               <div class="card-spacer"></div>
               <div class="card-spacer"></div>
-              <div class="royal-cards-summary card-shaped" id="royal-cards-trigger" data-clickable="popover" data-popover="royal-modal">
-                <div class="royal-card-icon-centered">${generateCrownIcon(32)}</div>
-                <div class="royal-card-label">4</div>
-              </div>
+              ${(() => {
+                const availableCount = gameState.royalCards.filter(card => !card.taken).length;
+                const isEmpty = availableCount === 0;
+                const clickableAttr = isEmpty ? '' : 'data-clickable="popover" data-popover="royal-modal"';
+                const emptyClass = isEmpty ? 'royal-cards-empty' : '';
+                return `
+                  <div class="royal-cards-summary card-shaped ${emptyClass}" id="royal-cards-trigger" ${clickableAttr}>
+                    <div class="royal-card-icon-centered ${isEmpty ? 'royal-icon-greyed' : ''}">${generateCrownIcon(32)}</div>
+                    <div class="royal-card-label">${availableCount}</div>
+                  </div>
+                `;
+              })()}
             </div>
 
             <div class="pyramid-row">
@@ -1780,12 +1761,19 @@ let purchaseContext = null; // { source: 'pyramid'|'reserve', reserveIndex?: num
 const openPopover = (id, cardData = null, cardElement = null) => {
   const popover = document.getElementById(id);
   if (popover) {
+    // Don't allow opening other modals if royal card selection is active
+    if (royalCardSelectionMode && id !== 'royal-modal') {
+      return;
+    }
+    
     if (id === 'card-detail-popover' && cardData) {
       selectedCard = cardData;
       selectedCardElement = cardElement;
       populateCardDetailPopover(cardData);
     } else if (id === 'reserved-modal') {
       populateReservedModal();
+    } else if (id === 'royal-modal') {
+      populateRoyalCardsModal(royalCardSelectionMode);
     }
     popover.style.display = "flex";
   }
@@ -1808,6 +1796,13 @@ const closePopover = (id) => {
     scrollSelectionMode = false;
     scrollSelectedToken = null;
     boardWasRefilled = false;
+  }
+  if (id === 'royal-modal' && !royalCardSelectionMode) {
+    // If closing royal modal in non-selection mode, make sure blocking is removed
+    const gameContainer = document.querySelector('.game-container');
+    if (gameContainer) {
+      gameContainer.classList.remove('dialog-blocking');
+    }
   }
 };
 
@@ -1864,6 +1859,156 @@ const populateReservedModal = () => {
       openPopover('card-detail-popover', card, null);
     });
   });
+};
+
+const showRoyalCardSelection = () => {
+  royalCardSelectionMode = true;
+  selectedRoyalCard = null;
+  
+  // Block interactions with rest of app
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.add('dialog-blocking');
+  }
+  
+  populateRoyalCardsModal(true);
+  openPopover('royal-modal');
+};
+
+const populateRoyalCardsModal = (selectionMode = false) => {
+  const modalBody = document.querySelector('#royal-modal-body');
+  if (!modalBody) return;
+
+  const availableCards = gameState.royalCards.filter(card => !card.taken);
+  const count = availableCards.length;
+  
+  // In selection mode, we need to maintain positions even for taken cards
+  // So we'll show all 4 positions, with gaps for taken cards
+  const allCards = gameState.royalCards; // All cards including taken ones
+
+  if (selectionMode) {
+    // Selection mode: always show 2x2 grid with gaps for taken cards
+    const cardsHTML = allCards.map((card, index) => {
+      if (card.taken) {
+        // Show empty space
+        return `<div class="royal-card-view royal-card-empty"></div>`;
+      }
+      
+      const abilityIcon = card.ability ? generateAbilityIcon({ ability: card.ability }) : '';
+      const isSelected = selectedRoyalCard && selectedRoyalCard.id === card.id;
+      const selectedClass = isSelected ? 'royal-card-selected' : '';
+      
+      return `
+        <div class="royal-card-view royal-card-clickable" data-card-id="${card.id}">
+          <div class="card royal-card-large ${selectedClass}" onclick="selectRoyalCard('${card.id}')" style="cursor: pointer;">
+            <!-- Gold arch background in upper right -->
+            <div class="royal-card-arch"></div>
+            
+            <!-- Darker gold arch in upper right (smaller, higher) -->
+            <div class="royal-card-arch-dark"></div>
+            
+            <!-- Gold bottom stripe -->
+            <div class="royal-card-stripe-bottom"></div>
+            
+            <!-- Points in upper left -->
+            <div class="royal-card-points">${card.points}</div>
+            
+            <!-- Ability icon in upper right -->
+            ${card.ability ? `<div class="royal-card-ability">${abilityIcon}</div>` : ''}
+            
+            <!-- Crown in center -->
+            <div class="royal-card-crown">${generateCrownIcon(40)}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const confirmDisabled = selectedRoyalCard ? '' : 'disabled';
+    
+    modalBody.innerHTML = `
+      <div style="display: flex; flex-direction: row; height: 100%; padding: 10px; box-sizing: border-box; gap: 10px;">
+        <div class="royal-cards-view royal-grid-4" style="flex: 1; height: 100%; align-items: center; justify-content: center;">
+          ${cardsHTML}
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: space-between; flex-shrink: 0; width: 120px; padding: 10px 0;">
+          <div style="text-align: center; font-size: 0.95em; color: #f0f0f0; font-weight: 500; line-height: 1.4; margin-bottom: 20px;">
+            You've earned a royal card! Select one to add to your hand.
+          </div>
+          <button onclick="confirmRoyalCardSelection()" class="action-button cancel-button" ${confirmDisabled} style="${confirmDisabled ? 'opacity: 0.5; cursor: not-allowed;' : ''}">Confirm</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // Normal view mode
+  if (count === 0) {
+    modalBody.innerHTML = `
+      <div style="display: flex; flex-direction: column; height: 100%; padding: 10px; box-sizing: border-box;">
+        <div style="display: flex; justify-content: center; align-items: center; flex: 1; margin-bottom: 10px;">
+          <div style="text-align: center; color: #666;">
+            <div style="font-size: 1.2em; margin-bottom: 10px;">No Royal Cards Available</div>
+            <div style="font-size: 0.9em;">All royal cards have been taken.</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: center; padding-top: 6px; margin-top: auto;">
+          <button onclick="closePopover('royal-modal')" class="action-button cancel-button">Close</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // Determine grid layout based on count
+  let gridClass = '';
+  if (count === 4) {
+    gridClass = 'royal-grid-4'; // 2x2 grid
+  } else if (count === 3) {
+    gridClass = 'royal-grid-3'; // 2 top, 1 bottom
+  } else if (count === 2) {
+    gridClass = 'royal-grid-2'; // 2 in top row
+  } else {
+    gridClass = 'royal-grid-1'; // single card
+  }
+
+  const cardsHTML = availableCards.map(card => {
+    const abilityIcon = card.ability ? generateAbilityIcon({ ability: card.ability }) : '';
+    
+    return `
+      <div class="royal-card-view">
+        <div class="card royal-card-large">
+          <!-- Gold arch background in upper right -->
+          <div class="royal-card-arch"></div>
+          
+          <!-- Darker gold arch in upper right (smaller, higher) -->
+          <div class="royal-card-arch-dark"></div>
+          
+          <!-- Gold bottom stripe -->
+          <div class="royal-card-stripe-bottom"></div>
+          
+          <!-- Points in upper left -->
+          <div class="royal-card-points">${card.points}</div>
+          
+          <!-- Ability icon in upper right -->
+          ${card.ability ? `<div class="royal-card-ability">${abilityIcon}</div>` : ''}
+          
+          <!-- Crown in center -->
+          <div class="royal-card-crown">${generateCrownIcon(40)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  modalBody.innerHTML = `
+    <div style="display: flex; flex-direction: row; height: 100%; padding: 10px; box-sizing: border-box; gap: 10px;">
+      <div class="royal-cards-view ${gridClass}" style="flex: 1; height: 100%; align-items: center; justify-content: center;">
+        ${cardsHTML}
+      </div>
+      <div style="display: flex; align-items: flex-end; justify-content: center; flex-shrink: 0; width: 100px;">
+        <button onclick="closePopover('royal-modal')" class="action-button cancel-button">Close</button>
+      </div>
+    </div>
+  `;
 };
 
 const populateCardDetailPopover = (card) => {
@@ -1967,7 +2112,7 @@ const reserveSelectedCard = () => {
   closePopover('card-detail-popover');
   // Re-render the game
   renderGame();
-  showTurnCompletionDialog();
+  checkAndShowRoyalCardSelection();
 };
 
 // Token selection state
@@ -2319,7 +2464,7 @@ const confirmTokenSelection = () => {
   
   // Re-render game to show updated tokens
   renderGame();
-  showTurnCompletionDialog();
+  checkAndShowRoyalCardSelection();
 };
 
 // Generate spiral positions from center (2,2) outward clockwise for 5x5 board
@@ -2546,6 +2691,72 @@ const updateRefillButtonState = () => {
   }
 };
 
+// Royal card selection functions
+const selectRoyalCard = (cardId) => {
+  if (!royalCardSelectionMode) return;
+  
+  const card = gameState.royalCards.find(c => c.id === cardId && !c.taken);
+  if (!card) return;
+  
+  selectedRoyalCard = card;
+  
+  // Re-render the modal to update selection state and enable confirm button
+  populateRoyalCardsModal(true);
+  
+  // Update the confirm button state
+  const confirmBtn = document.querySelector('#royal-modal-body button');
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.style.opacity = '1';
+    confirmBtn.style.cursor = 'pointer';
+  }
+};
+
+const confirmRoyalCardSelection = () => {
+  if (!royalCardSelectionMode || !selectedRoyalCard) return;
+  
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const player = gameState.players[currentPlayerId];
+  
+  // Add card to player's hand (points are added automatically via getPlayerVictoryStats)
+  // Create a card object that matches the structure
+  const royalCard = {
+    ...selectedRoyalCard,
+    level: 3, // Royal cards are level 3
+    color: 'none', // Royal cards don't have a color
+    crowns: 0, // Royal cards don't add crowns
+    costs: {} // Royal cards have no costs
+  };
+  player.cards.push(royalCard);
+  
+  // Award scroll if card has scroll ability
+  if (selectedRoyalCard.ability === 'scroll') {
+    awardScroll(currentPlayerId);
+  }
+  
+  // Mark card as taken
+  selectedRoyalCard.taken = true;
+  
+  // Reset selection state
+  selectedRoyalCard = null;
+  royalCardSelectionMode = false;
+  
+  // Remove blocking class
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.remove('dialog-blocking');
+  }
+  
+  // Close modal
+  closePopover('royal-modal');
+  
+  // Re-render game
+  renderGame();
+  
+  // Show normal turn completion dialog
+  showTurnCompletionDialog();
+};
+
 // Expose to global scope for onclick handlers
 window.buySelectedCard = buySelectedCard;
 window.reserveSelectedCard = reserveSelectedCard;
@@ -2554,6 +2765,8 @@ window.refillBoard = refillBoard;
 window.enterScrollSelectionMode = enterScrollSelectionMode;
 window.cancelScrollSelection = cancelScrollSelection;
 window.confirmScrollSelection = confirmScrollSelection;
+window.selectRoyalCard = selectRoyalCard;
+window.confirmRoyalCardSelection = confirmRoyalCardSelection;
 // Deprecated: payment now renders inline in the same modal
 
 // Close any open popover on escape key
@@ -2561,8 +2774,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     const openPopovers = document.querySelectorAll(".modal-overlay[style*='flex']");
     openPopovers.forEach(popover => {
-      // Don't close turn completion dialog with ESC - user must click button
-      if (popover.id !== 'turn-completion-dialog') {
+      // Don't close turn completion dialog or royal modal in selection mode with ESC
+      if (popover.id !== 'turn-completion-dialog' && !(popover.id === 'royal-modal' && royalCardSelectionMode)) {
         popover.style.display = "none";
       }
     });
@@ -2571,6 +2784,31 @@ document.addEventListener("keydown", (e) => {
 
 
 // Turn switching system functions
+// Check if player has earned a royal card and show selection if needed
+const checkAndShowRoyalCardSelection = () => {
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const stats = getPlayerVictoryStats(currentPlayerId);
+  const currentCrowns = stats.totalCrowns;
+  const previousCrowns = previousCrownCounts[currentPlayerId];
+  
+  // Check for threshold crossings
+  const earnedRoyalCard = 
+    (previousCrowns < 3 && currentCrowns >= 3 && currentCrowns <= 5) ||
+    (previousCrowns >= 3 && previousCrowns <= 5 && currentCrowns >= 6);
+  
+  if (earnedRoyalCard) {
+    // Update previous count
+    previousCrownCounts[currentPlayerId] = currentCrowns;
+    
+    // Show royal card selection modal
+    showRoyalCardSelection();
+  } else {
+    // Update previous count and show normal turn completion
+    previousCrownCounts[currentPlayerId] = currentCrowns;
+    showTurnCompletionDialog();
+  }
+};
+
 const showTurnCompletionDialog = () => {
   const dialog = document.getElementById('turn-completion-dialog');
   if (!dialog) return;
