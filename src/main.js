@@ -1388,43 +1388,49 @@ const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
     red: 'red'
   };
   
-  // Only show token dots if we have tokens
-  let dotsHTML = '';
+  // Calculate total buying power (tokens + cards)
+  const buyingPower = cardCount + tokenCount;
+  
+  // Generate token SVGs in 2x2 grid (max 4 tokens)
+  let tokensHTML = '';
   if (tokenCount > 0) {
-    const dots = [];
-    for (let i = 0; i < tokenCount; i++) {
-      dots.push(`<span class="token-dot ${colorClasses[color]}"></span>`);
+    const tokensToShow = Math.min(tokenCount, 4);
+    const tokenSize = 24; // Size for each token SVG
+    const tokens = [];
+    
+    for (let i = 0; i < tokensToShow; i++) {
+      const tokenSvg = generateGemTokenIcon(color, tokenSize);
+      tokens.push(`<div class="hand-token" style="filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));">${tokenSvg}</div>`);
     }
-    dotsHTML = `<div class="token-dots">${dots.join('')}</div>`;
+    
+    tokensHTML = `<div class="hand-tokens-grid">${tokens.join('')}</div>`;
   }
   
   // Show dotted border when no cards
   const emptyStyle = cardCount === 0 ? 'style="border: 2px dashed #ccc; background: transparent;"' : '';
   
-  let iconHTML = '';
-  if (color === 'black' && cardCount > 0) {
-    iconHTML = `
-      <div class="wild-token-icon">
-        <svg viewBox="0 0 32 32" width="32" height="32">
-          <polygon points="16,16 16,2 29.3,11.7" fill="#2c3e50"/>
-          <polygon points="16,16 29.3,11.7 24.2,27.3" fill="#f0f0f0" stroke="#ccc"/>
-          <polygon points="16,16 24.2,27.3 7.8,27.3" fill="#e74c3c"/>
-          <polygon points="16,16 7.8,27.3 2.7,11.7" fill="#7ed321"/>
-          <polygon points="16,16 2.7,11.7 16,2" fill="#4a90e2"/>
-          <polygon points="16,2 29.3,11.7 24.2,27.3 7.8,27.3 2.7,11.7" fill="none" stroke="#333" stroke-width="0.8"/>
-        </svg>
-      </div>
-    `;
+  // Add card-style stripes when we have cards
+  let stripeTopHTML = '';
+  let stripeBottomHTML = '';
+  if (cardCount > 0) {
+    const colorValue = getColorValue(color);
+    const colorClass = getColorClass(color);
+    stripeTopHTML = `<div class="card-stripe-top ${colorClass}" style="background-color: ${colorValue}"></div>`;
+    stripeBottomHTML = `<div class="card-stripe-bottom ${colorClass}" style="background-color: ${colorValue}"></div>`;
   }
   
   const emptyClass = cardCount === 0 ? 'color-card-empty' : '';
   
+  // Show points if there's one or more cards in the stack, even if value is zero
+  const pointsHTML = cardCount > 0 ? `<div class="points-value ${color}">${points} pts</div>` : '';
+  
   return `
     <div class="color-card ${color} ${emptyClass}" ${emptyStyle}>
-      ${dotsHTML}
-      ${iconHTML}
-      <div class="power-circle ${color}">${cardCount}</div>
-      <div class="points-value">${points} pts</div>
+      ${stripeTopHTML}
+      ${stripeBottomHTML}
+      ${tokensHTML}
+      <div class="power-circle ${color}">${buyingPower}</div>
+      ${pointsHTML}
     </div>
   `;
 };
@@ -1444,8 +1450,9 @@ const renderPlayerHand = (playerId) => {
   
   // Add reserved cards section
   const reserveCount = gameState.players[playerId].reserves.length;
+  const reservedEmptyClass = reserveCount === 0 ? 'reserved-section-empty' : 'reserved-section-filled';
   html += `
-    <div class="reserved-section" id="show-reserved" data-clickable="popover" data-popover="reserved-modal">
+    <div class="reserved-section ${reservedEmptyClass}" id="show-reserved" data-clickable="popover" data-popover="reserved-modal">
       <div class="reserved-count">${reserveCount}</div>
       <div class="reserved-label">Reserved</div>
     </div>
@@ -1459,6 +1466,21 @@ const renderHandDisplay = () => {
   const handDisplay = document.getElementById('player-hand');
   if (handDisplay) {
     handDisplay.innerHTML = renderPlayerHand(turnDisplayState.activePlayerId);
+    // Re-attach popover listeners for the reserved section
+    setTimeout(() => {
+      const reservedSection = document.getElementById('show-reserved');
+      if (reservedSection) {
+        // Remove old handler if exists
+        if (reservedSection._popoverHandler) {
+          reservedSection.removeEventListener('click', reservedSection._popoverHandler);
+        }
+        // Attach new handler
+        reservedSection._popoverHandler = (e) => {
+          openPopover('reserved-modal');
+        };
+        reservedSection.addEventListener('click', reservedSection._popoverHandler);
+      }
+    }, 10);
   }
 };
 
@@ -1476,42 +1498,53 @@ const renderOpponentStats = () => {
     const tokenCount = player.tokens[color] || 0;
     const pointValue = points[color] || 0;
     
-    let tokenDotsHtml = '';
+    // Calculate total buying power (tokens + cards)
+    const buyingPower = cardCount + tokenCount;
+    
+    // Generate token SVGs in 2x2 grid (max 4 tokens)
+    let tokensHTML = '';
     if (tokenCount > 0) {
-      const dots = [];
-      for (let i = 0; i < Math.min(tokenCount, 4); i++) {
-        dots.push(`<span class="opponent-token-dot ${color}"></span>`);
+      const tokensToShow = Math.min(tokenCount, 4);
+      const tokenSize = 20; // Slightly smaller for opponent cards
+      const tokens = [];
+      
+      for (let i = 0; i < tokensToShow; i++) {
+        const tokenSvg = generateGemTokenIcon(color, tokenSize);
+        tokens.push(`<div class="hand-token" style="filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));">${tokenSvg}</div>`);
       }
-      tokenDotsHtml = `<div class="opponent-token-dots">${dots.join('')}</div>`;
+      
+      tokensHTML = `<div class="hand-tokens-grid">${tokens.join('')}</div>`;
     }
     
-    let wildIconHtml = '';
-    if (color === 'black' && cardCount > 0) {
-      wildIconHtml = `
-        <div class="opponent-wild-token-icon">
-          <svg viewBox="0 0 24 24" width="24" height="24">
-            <polygon points="12,12 12,2 21.6,8.6" fill="#2c3e50"/>
-            <polygon points="12,12 21.6,8.6 18.1,20.3" fill="#f0f0f0" stroke="#ccc"/>
-            <polygon points="12,12 18.1,20.3 5.9,20.3" fill="#e74c3c"/>
-            <polygon points="12,12 5.9,20.3 2.4,8.6" fill="#7ed321"/>
-            <polygon points="12,12 2.4,8.6 12,2" fill="#4a90e2"/>
-            <polygon points="12,2 21.6,8.6 18.1,20.3 5.9,20.3 2.4,8.6" fill="none" stroke="#333" stroke-width="0.6"/>
-          </svg>
-        </div>
-      `;
+    // Add card-style stripes when we have cards
+    let stripeTopHTML = '';
+    let stripeBottomHTML = '';
+    if (cardCount > 0) {
+      const colorValue = getColorValue(color);
+      const colorClass = getColorClass(color);
+      stripeTopHTML = `<div class="card-stripe-top ${colorClass}" style="background-color: ${colorValue}"></div>`;
+      stripeBottomHTML = `<div class="card-stripe-bottom ${colorClass}" style="background-color: ${colorValue}"></div>`;
     }
+    
+    const emptyClass = cardCount === 0 ? 'opponent-color-card-empty' : '';
+    const emptyStyle = cardCount === 0 ? 'style="border: 2px dashed #ccc; background: transparent;"' : '';
+    
+    // Show points if there's one or more cards in the stack, even if value is zero
+    const pointsHTML = cardCount > 0 ? `<div class="opponent-points-value ${color}">${pointValue} pts</div>` : '';
     
     colorCardsHtml += `
-      <div class="opponent-color-card ${color}">
-        ${tokenDotsHtml}
-        ${wildIconHtml}
-        <div class="opponent-power-circle ${color}">${cardCount}</div>
-        <div class="opponent-points-value">${pointValue} pts</div>
+      <div class="opponent-color-card ${color} ${emptyClass}" ${emptyStyle}>
+        ${stripeTopHTML}
+        ${stripeBottomHTML}
+        ${tokensHTML}
+        <div class="opponent-power-circle ${color}">${buyingPower}</div>
+        ${pointsHTML}
       </div>
     `;
   });
   
   const reserveCount = player.reserves.length;
+  const opponentReservedEmptyClass = reserveCount === 0 ? 'opponent-reserved-section-empty' : 'opponent-reserved-section-filled';
   
   return `
     <div class="opponent-resources-bar">
@@ -1534,7 +1567,7 @@ const renderOpponentStats = () => {
     </div>
     <div class="opponent-color-cards-row">
       ${colorCardsHtml}
-      <div class="opponent-reserved-section">
+      <div class="opponent-reserved-section ${opponentReservedEmptyClass}">
         <div class="opponent-reserved-count">${reserveCount}</div>
         <div class="opponent-reserved-label">Res</div>
       </div>
@@ -1581,21 +1614,8 @@ const generateGameLayout = () => {
             ${generateTokenBoard()}
           </div>
         </div>
-        <div class="opponent-stats-container" id="opponent-stats" data-clickable="popover" data-popover="opponent-hand-modal">
+        <div class="opponent-stats-container" id="opponent-stats">
           ${renderOpponentStats()}
-        </div>
-      </div>
-
-      <!-- Opponent Hand Modal -->
-      <div class="modal-overlay" id="opponent-hand-modal" style="display: none;">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Opponent's Hand</h3>
-            <button class="close-modal" onclick="closePopover('opponent-hand-modal')">×</button>
-          </div>
-          <div class="modal-body">
-            <!-- Content will go here -->
-          </div>
         </div>
       </div>
 
@@ -2024,7 +2044,8 @@ const populateCardDetailPopover = (card) => {
 
   const fromReserve = purchaseContext && purchaseContext.source === 'reserve';
   modalBody.innerHTML = `
-    <div style="display:flex; flex-direction:column; gap:10px; padding:12px; height:100%; box-sizing:border-box;">
+    <div style="display:flex; flex-direction:column; gap:10px; padding:12px; height:100%; box-sizing:border-box; position:relative;">
+      ${fromReserve ? '' : `<button onclick="reserveSelectedCard()" class="action-button reserve-button reserve-button-top-right" ${gameState.players[currentPlayerId].reserves.length >= 3 ? 'disabled' : ''}>Reserve</button>`}
       <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start; flex:1 1 auto; overflow:hidden;">
         <div style="display:flex; justify-content:center; align-items:center; transform: scale(2); transform-origin: top left; position: relative; z-index: 1;">
           ${cardHTML}
@@ -2035,7 +2056,6 @@ const populateCardDetailPopover = (card) => {
       </div>
       <div style="display:flex; gap:10px; justify-content:center; padding-top:6px; margin-top:auto;">
         <button id="buy-button" class="action-button buy-button" ${afford.affordable ? '' : 'disabled'}>Buy</button>
-        ${fromReserve ? '' : `<button onclick="reserveSelectedCard()" class="action-button reserve-button" ${gameState.players[currentPlayerId].reserves.length >= 3 ? 'disabled' : ''}>Reserve</button>`}
         <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Close</button>
       </div>
     </div>

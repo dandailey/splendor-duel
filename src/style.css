@@ -210,37 +210,47 @@ body {
   background: rgba(44, 62, 80, 0.1);
 }
 
-/* Opponent token dots */
-.opponent-token-dots {
+.opponent-color-card-empty {
+  background: transparent !important;
+  border: 1.5px dashed #ccc !important;
+}
+
+/* Card stripe styling for filled opponent color cards (matching card-v2) */
+.opponent-color-card .card-stripe-top,
+.opponent-color-card .card-stripe-bottom {
+  width: 100%;
   position: absolute;
-  top: 4px;
-  left: 3px;
-  display: grid;
-  grid-template-columns: repeat(2, 5px);
-  grid-template-rows: repeat(2, 5px);
-  gap: 2px;
-  z-index: 10;
+  left: 0;
+  border-radius: 3px;
 }
 
-.opponent-token-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.3);
-  display: inline-block;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+.opponent-color-card .card-stripe-top {
+  top: 0;
+  height: 100%;
+  clip-path: polygon(0 0, 100% 0, 100% 50%, 0 25%);
+  z-index: 1;
 }
 
-.opponent-token-dot.blue { background: var(--token-blue); }
-.opponent-token-dot.white { 
-  background: var(--token-white); 
-  border: 1px solid #999;
+.opponent-color-card .card-stripe-top::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, transparent 50%, rgba(0,0,0,0.1) 100%);
+  border-radius: 3px;
+  pointer-events: none;
 }
-.opponent-token-dot.green { background: var(--token-green); }
-.opponent-token-dot.red { background: var(--token-red); }
-.opponent-token-dot.black { background: var(--token-black); }
-.opponent-token-dot.gold { background: var(--token-gold); }
-.opponent-token-dot.pearl { background: var(--token-pearl); }
+
+.opponent-color-card .card-stripe-bottom {
+  bottom: 0;
+  height: 18px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 /* Opponent wild token icon */
 .opponent-wild-token-icon {
@@ -252,21 +262,23 @@ body {
   opacity: 0.6;
 }
 
-/* Opponent power circle */
+/* Opponent power circle - positioned to stick out of upper right corner */
 .opponent-color-card .opponent-power-circle {
   position: absolute;
-  top: 4px;
-  right: 3px;
-  width: 14px;
-  height: 14px;
+  top: -5px;
+  right: -5px;
+  width: 16px;
+  height: 16px;
   border-radius: 2.5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.5em;
+  font-size: 0.55em;
   font-weight: bold;
   color: white;
   text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .opponent-power-circle.blue {
@@ -294,34 +306,66 @@ body {
 
 /* Opponent points value */
 .opponent-points-value {
-  font-size: 0.5em;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6em;
   font-weight: bold;
-  color: #333;
-  margin-top: auto;
-  margin-bottom: 2px;
+  z-index: 2;
 }
 
-/* Opponent reserved section */
+/* Opponent points styling - white with drop shadow for colored cards */
+.opponent-points-value:not(.white) {
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Opponent points styling - black with white outline for white cards */
+.opponent-points-value.white {
+  color: #333;
+  text-shadow:
+    -1px -1px 0 white,
+    1px -1px 0 white,
+    -1px 1px 0 white,
+    1px 1px 0 white,
+    0 -1px 0 white,
+    0 1px 0 white,
+    -1px 0 0 white,
+    1px 0 0 white;
+}
+
+/* Opponent reserved section - not clickable */
 .opponent-reserved-section {
   flex: 1;
   min-width: 38px;
   height: 62px;
-  border: 1.5px dashed #999;
   border-radius: 3px;
-  background: #f9f9f9;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
+  cursor: default;
+  pointer-events: none;
   padding: 3px;
 }
 
-.opponent-reserved-section:hover {
-  background: #f0f0f0;
-  border-color: #777;
+/* Empty opponent reserved section - dotted outline, no background */
+.opponent-reserved-section-empty {
+  border: 1.5px dashed #999;
+  background: transparent;
 }
+
+/* Filled opponent reserved section - grey background, solid border */
+.opponent-reserved-section-filled {
+  border: 1.5px solid #333;
+  background: #e0e0e0;
+}
+
 
 .opponent-reserved-count {
   font-size: 1em;
@@ -2398,57 +2442,94 @@ button.action-trigger {
   border: 2px dashed #ccc !important;
 }
 
-.color-card-empty .power-circle {
-  opacity: 0.5;
+/* Filled color cards should have white background in addition to colored stripes */
+.color-card:not(.color-card-empty) {
+  background: white !important;
 }
 
-.token-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.3);
-  display: inline-block;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-/* Token dots container for 2x2 grid */
-.token-dots {
+/* Card stripe styling for filled color cards (matching card-v2) */
+.color-card .card-stripe-top,
+.color-card .card-stripe-bottom {
+  width: 100%;
   position: absolute;
-  top: 4px;
-  left: 4px;
+  left: 0;
+  border-radius: 6px;
+}
+
+.color-card .card-stripe-top {
+  top: 0;
+  height: 100%;
+  clip-path: polygon(0 0, 100% 0, 100% 50%, 0 25%);
+  z-index: 1;
+}
+
+.color-card .card-stripe-top::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, transparent 50%, rgba(0,0,0,0.1) 100%);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.color-card .card-stripe-bottom {
+  bottom: 0;
+  height: 24px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Hand tokens grid - centered, larger, with actual token SVGs */
+.hand-tokens-grid {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: grid;
-  grid-template-columns: repeat(2, 7px);
-  grid-template-rows: repeat(2, 7px);
-  gap: 3.5px;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 8px;
+  width: 70%;
+  max-width: 60px;
   z-index: 10;
+  pointer-events: none;
 }
 
-.token-dot.blue { background: var(--token-blue); }
-.token-dot.white { 
-  background: var(--token-white); 
-  border: 1px solid #999;
+.hand-token {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
-.token-dot.green { background: var(--token-green); }
-.token-dot.red { background: var(--token-red); }
-.token-dot.black { background: var(--token-black); }
-.token-dot.gold { background: var(--token-gold); }
-.token-dot.pearl { background: var(--token-pearl); }
 
-/* Power circle for color cards */
+.hand-token svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Power circle for color cards - positioned to stick out of upper right corner */
 .color-card .power-circle {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 17.5px;
-  height: 17.5px;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
   border-radius: 3.5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.6em;
+  font-size: 0.65em;
   font-weight: bold;
   color: white;
   text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .color-card .power-circle.white {
@@ -2486,20 +2567,44 @@ button.action-trigger {
 }
 
 .points-value {
-  font-size: 0.65em;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75em;
   font-weight: bold;
+  z-index: 2;
+}
+
+/* Points styling - white with drop shadow for colored cards */
+.points-value:not(.white) {
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Points styling - black with white outline for white cards */
+.points-value.white {
   color: #333;
-  margin-bottom: 4px;
-  margin-top: auto;
+  text-shadow:
+    -1px -1px 0 white,
+    1px -1px 0 white,
+    -1px 1px 0 white,
+    1px 1px 0 white,
+    0 -1px 0 white,
+    0 1px 0 white,
+    -1px 0 0 white,
+    1px 0 0 white;
 }
 
 .reserved-section {
   flex: 1;
   min-width: 0;
   height: 100px;
-  border: 2px dashed #999;
   border-radius: 6px;
-  background: #f9f9f9;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2509,9 +2614,24 @@ button.action-trigger {
   padding: 4px;
 }
 
+/* Empty reserved section - dotted outline, no background */
+.reserved-section-empty {
+  border: 2px dashed #999;
+  background: transparent;
+}
+
+/* Filled reserved section - white background, solid border */
+.reserved-section-filled {
+  border: 2px solid #333;
+  background: white;
+}
+
 .reserved-section:hover {
-  background: #f0f0f0;
   border-color: #777;
+}
+
+.reserved-section-filled:hover {
+  background: #f0f0f0;
 }
 
 .reserved-icon {
@@ -2870,7 +2990,7 @@ button.action-trigger {
   width: 32px;
   height: 32px;
   border-radius: 4px;
-  border: 1px solid #333;
+  border: 2px solid #333;
   opacity: 0.4;
 }
 
@@ -2884,11 +3004,26 @@ button.action-trigger {
   height: 28px;
 }
 
-.victory-icon-backdrop.color.blue { background: var(--token-blue); }
-.victory-icon-backdrop.color.white { background: var(--token-white); }
-.victory-icon-backdrop.color.green { background: var(--token-green); }
-.victory-icon-backdrop.color.red { background: var(--token-red); }
-.victory-icon-backdrop.color.black { background: var(--token-black); }
+.victory-icon-backdrop.color.blue { 
+  background: var(--token-blue); 
+  border-color: var(--token-blue);
+}
+.victory-icon-backdrop.color.white { 
+  background: var(--token-white); 
+  border-color: #ccc;
+}
+.victory-icon-backdrop.color.green { 
+  background: var(--token-green); 
+  border-color: var(--token-green);
+}
+.victory-icon-backdrop.color.red { 
+  background: var(--token-red); 
+  border-color: var(--token-red);
+}
+.victory-icon-backdrop.color.black { 
+  background: var(--token-black); 
+  border-color: var(--token-black);
+}
 
 .victory-icon-backdrop.color.empty {
   background: transparent !important;
@@ -3267,6 +3402,18 @@ button.action-trigger {
 
 .reserve-button:hover {
   background-color: #6bbf0f;
+}
+
+/* Reserve button in upper right of modal */
+.reserve-button-top-right {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 4px 8px;
+  font-size: 0.85em;
+  z-index: 1000;
+  margin: 0;
+  border-radius: 4px 0 0 4px;
 }
 
 .cancel-button {
