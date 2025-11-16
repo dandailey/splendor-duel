@@ -514,17 +514,31 @@ const generateGoldIcon = (size = 24) => {
   </svg>`;
 };
 
+const generateWildIconSvg = (size = 28) => `
+  <svg viewBox="0 0 24 24" width="${size}" height="${size}" role="img" aria-label="wild gem">
+    <polygon points="12,12 12,2 21.6,8.6" fill="#2c3e50"></polygon>
+    <polygon points="12,12 21.6,8.6 18.1,20.3" fill="#f0f0f0" stroke="#ccc"></polygon>
+    <polygon points="12,12 18.1,20.3 5.9,20.3" fill="#e74c3c"></polygon>
+    <polygon points="12,12 5.9,20.3 2.4,8.6" fill="#7ed321"></polygon>
+    <polygon points="12,12 2.4,8.6 12,2" fill="#4a90e2"></polygon>
+    <polygon points="12,2 21.6,8.6 18.1,20.3 5.9,20.3 2.4,8.6" fill="none" stroke="#333" stroke-width="0.6"></polygon>
+  </svg>
+`;
+
 const generateAbilityIcon = (card) => {
   if (!card.ability) return '';
   
   const icons = {
-    'wild': '🌐', // wild icon
     'again': '🔄', // repeat icon
     'token': '💎', // token picker - we can discuss this
     'steal': '✋', // hand/steal
     'scroll': '🗞️', // scroll
   };
   
+  if (card.ability === 'wild') {
+    return `<span class="ability-icon">${generateWildIconSvg(18)}</span>`;
+  }
+
   if (icons[card.ability]) {
     return `<span class="ability-icon">${icons[card.ability]}</span>`;
   }
@@ -693,16 +707,7 @@ const renderCardV2 = (card, levelClass) => {
   
   // Wild icon for wild cards - centered above costs
   if (isWild) {
-    cardHTML += '<div class="wild-icon-positioned">';
-    cardHTML += '<svg viewBox="0 0 24 24" width="28" height="28" style="fill: #666;">';
-    cardHTML += '<polygon points="12,12 12,2 21.6,8.6" fill="#2c3e50"/>';
-    cardHTML += '<polygon points="12,12 21.6,8.6 18.1,20.3" fill="#f0f0f0" stroke="#ccc"/>';
-    cardHTML += '<polygon points="12,12 18.1,20.3 5.9,20.3" fill="#e74c3c"/>';
-    cardHTML += '<polygon points="12,12 5.9,20.3 2.4,8.6" fill="#7ed321"/>';
-    cardHTML += '<polygon points="12,12 2.4,8.6 12,2" fill="#4a90e2"/>';
-    cardHTML += '<polygon points="12,2 21.6,8.6 18.1,20.3 5.9,20.3 2.4,8.6" fill="none" stroke="#333" stroke-width="0.6"/>';
-    cardHTML += '</svg>';
-    cardHTML += '</div>';
+    cardHTML += `<div class="wild-icon-positioned">${generateWildIconSvg(28)}</div>`;
   }
   
   cardHTML += '</div>';
@@ -797,16 +802,7 @@ const renderCard = (card, levelClass) => {
   
   // Wild icon for wild cards - centered above costs
   if (isWild) {
-    cardHTML += '<div class="wild-icon-positioned">';
-    cardHTML += '<svg viewBox="0 0 24 24" width="28" height="28" style="fill: #666;">';
-    cardHTML += '<polygon points="12,12 12,2 21.6,8.6" fill="#2c3e50"/>';
-    cardHTML += '<polygon points="12,12 21.6,8.6 18.1,20.3" fill="#f0f0f0" stroke="#ccc"/>';
-    cardHTML += '<polygon points="12,12 18.1,20.3 5.9,20.3" fill="#e74c3c"/>';
-    cardHTML += '<polygon points="12,12 5.9,20.3 2.4,8.6" fill="#7ed321"/>';
-    cardHTML += '<polygon points="12,12 2.4,8.6 12,2" fill="#4a90e2"/>';
-    cardHTML += '<polygon points="12,2 21.6,8.6 18.1,20.3 5.9,20.3 2.4,8.6" fill="none" stroke="#333" stroke-width="0.6"/>';
-    cardHTML += '</svg>';
-    cardHTML += '</div>';
+    cardHTML += `<div class="wild-icon-positioned">${generateWildIconSvg(28)}</div>`;
   }
   
   cardHTML += '</div>';
@@ -952,13 +948,33 @@ const getPlayerCards = (playerId) => {
     wild: 0
   };
   const points = { blue: 0, white: 0, green: 0, black: 0, red: 0, wild: 0 };
+  const wildStacks = { blue: false, white: false, green: false, black: false, red: false };
+  const lastCardByColor = { blue: null, white: null, green: null, black: null, red: null };
   
+  // Process cards in order to find the last card in each color stack
   player.cards.forEach(card => {
-    cards[card.color] = (cards[card.color] || 0) + 1;
-    points[card.color] = (points[card.color] || 0) + card.points;
+    if (card.color === 'wild' && card.wildColorStack) {
+      // Wild card belongs to a specific color stack
+      const stackColor = card.wildColorStack;
+      cards[stackColor] = (cards[stackColor] || 0) + 1;
+      points[stackColor] = (points[stackColor] || 0) + card.points;
+      lastCardByColor[stackColor] = card; // Track last card in this stack
+    } else if (card.color && card.color !== 'none' && card.color !== 'wild') {
+      cards[card.color] = (cards[card.color] || 0) + 1;
+      points[card.color] = (points[card.color] || 0) + card.points;
+      lastCardByColor[card.color] = card; // Track last card in this stack
+    }
   });
   
-  return { cards, points };
+  // Check if the top card (last added) in each stack is a wild
+  Object.keys(lastCardByColor).forEach(color => {
+    const lastCard = lastCardByColor[color];
+    if (lastCard && lastCard.color === 'wild') {
+      wildStacks[color] = true;
+    }
+  });
+  
+  return { cards, points, wildStacks };
 };
 
 // Calculate player victory stats
@@ -1342,8 +1358,28 @@ const finalizePurchaseWithSelection = () => {
   const { playerId } = paymentState;
   const plan = computePaymentPlanWithGold(selectedCard, playerId, paymentState.goldAssignments);
   if (!plan.valid) return;
+  
+  // Check if this is a wild card - if so, show placement modal WITHOUT deducting resources yet
+  const isWild = selectedCard.color === 'wild';
+  if (isWild) {
+    // Store the card, payment plan, and context for later placement
+    // Resources will only be deducted when placement is confirmed
+    pendingWildCard = {
+      card: selectedCard,
+      fromReserve: paymentState.context && paymentState.context.fromReserve,
+      reserveIndex: paymentState.context ? paymentState.context.reserveIndex : null,
+      playerId: playerId,
+      paymentPlan: plan // Store the payment plan for later deduction
+    };
+    paymentState = null;
+    purchaseContext = null;
+    closePopover('card-detail-popover');
+    showWildPlacementModal();
+    return;
+  }
+  
+  // For non-wild cards, deduct resources immediately
   const player = gameState.players[playerId];
-  // Deduct tokens according to computed plan and return them to bag
   ['gold', 'pearl', ...purchaseColors].forEach(color => {
     const spend = plan.spend[color] || 0;
     if (spend > 0) {
@@ -1352,6 +1388,7 @@ const finalizePurchaseWithSelection = () => {
       gameState.bag[color] = (gameState.bag[color] || 0) + spend;
     }
   });
+  
   // Grant card: handle reserve vs pyramid source
   if (paymentState && paymentState.context && paymentState.context.fromReserve) {
     const rIndex = paymentState.context.reserveIndex;
@@ -1379,7 +1416,7 @@ const finalizePurchaseWithSelection = () => {
   checkAndShowRoyalCardSelection();
 };
 
-const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
+const renderPlayerColorCard = (color, cardCount, tokenCount, points, hasWild = false) => {
   const colorClasses = {
     blue: 'blue',
     white: 'white',
@@ -1410,13 +1447,23 @@ const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
   const emptyStyle = cardCount === 0 ? 'style="border: 2px dashed #ccc; background: transparent;"' : '';
   
   // Add card-style stripes when we have cards
+  // If hasWild, use grey colors for background/bottom strip, but keep colored border
   let stripeTopHTML = '';
   let stripeBottomHTML = '';
+  let wildIconHTML = '';
   if (cardCount > 0) {
     const colorValue = getColorValue(color);
     const colorClass = getColorClass(color);
-    stripeTopHTML = `<div class="card-stripe-top ${colorClass}" style="background-color: ${colorValue}"></div>`;
-    stripeBottomHTML = `<div class="card-stripe-bottom ${colorClass}" style="background-color: ${colorValue}"></div>`;
+    if (hasWild) {
+      // Wild card styling: grey background and bottom strip, but colored border
+      stripeTopHTML = `<div class="card-stripe-top ${colorClass}" style="background-color: #999;"></div>`;
+      stripeBottomHTML = `<div class="card-stripe-bottom ${colorClass}" style="background-color: #999;"></div>`;
+      // Wild icon in upper left
+      wildIconHTML = `<div class="wild-token-icon" style="position: absolute; top: 4px; left: 4px; z-index: 15;">${generateWildIconSvg(22)}</div>`;
+    } else {
+      stripeTopHTML = `<div class="card-stripe-top ${colorClass}" style="background-color: ${colorValue}"></div>`;
+      stripeBottomHTML = `<div class="card-stripe-bottom ${colorClass}" style="background-color: ${colorValue}"></div>`;
+    }
   }
   
   const emptyClass = cardCount === 0 ? 'color-card-empty' : '';
@@ -1428,6 +1475,7 @@ const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
     <div class="color-card ${color} ${emptyClass}" ${emptyStyle}>
       ${stripeTopHTML}
       ${stripeBottomHTML}
+      ${wildIconHTML}
       ${tokensHTML}
       <div class="power-circle ${color}">${buyingPower}</div>
       ${pointsHTML}
@@ -1436,7 +1484,7 @@ const renderPlayerColorCard = (color, cardCount, tokenCount, points) => {
 };
 
 const renderPlayerHand = (playerId) => {
-  const { cards, points } = getPlayerCards(playerId);
+  const { cards, points, wildStacks } = getPlayerCards(playerId);
   const player = gameState.players[playerId];
   const colors = ['blue', 'white', 'green', 'red', 'black'];
   
@@ -1445,7 +1493,8 @@ const renderPlayerHand = (playerId) => {
   colors.forEach(color => {
     const cardCount = cards[color] || 0;
     const tokenCount = player.tokens[color] || 0;
-    html += renderPlayerColorCard(color, cardCount, tokenCount, points[color] || 0);
+    const hasWild = wildStacks[color] || false;
+    html += renderPlayerColorCard(color, cardCount, tokenCount, points[color] || 0, hasWild);
   });
   
   // Add reserved cards section
@@ -1466,21 +1515,7 @@ const renderHandDisplay = () => {
   const handDisplay = document.getElementById('player-hand');
   if (handDisplay) {
     handDisplay.innerHTML = renderPlayerHand(turnDisplayState.activePlayerId);
-    // Re-attach popover listeners for the reserved section
-    setTimeout(() => {
-      const reservedSection = document.getElementById('show-reserved');
-      if (reservedSection) {
-        // Remove old handler if exists
-        if (reservedSection._popoverHandler) {
-          reservedSection.removeEventListener('click', reservedSection._popoverHandler);
-        }
-        // Attach new handler
-        reservedSection._popoverHandler = (e) => {
-          openPopover('reserved-modal');
-        };
-        reservedSection.addEventListener('click', reservedSection._popoverHandler);
-      }
-    }, 10);
+    attachReservedSectionDelegation();
   }
 };
 
@@ -1674,6 +1709,15 @@ const generateGameLayout = () => {
             </div>
           </div>
 
+          <!-- Wild Card Placement Modal -->
+          <div class="modal-overlay card-modal-overlay" id="wild-placement-modal" style="display: none;">
+            <div class="modal-content card-detail-content">
+              <div class="modal-body">
+                <!-- Content will be injected -->
+              </div>
+            </div>
+          </div>
+
           <!-- Turn Completion Dialog -->
           <div class="modal-overlay card-modal-overlay" id="turn-completion-dialog" style="display: none;">
             <div class="modal-content turn-completion-content">
@@ -1776,6 +1820,20 @@ const generateGameLayout = () => {
 let selectedCard = null;
 let selectedCardElement = null;
 let purchaseContext = null; // { source: 'pyramid'|'reserve', reserveIndex?: number, playerId?: string }
+let pendingWildCard = null; // Card waiting for color stack selection
+let reservedSectionListenerAttached = false;
+
+const attachReservedSectionDelegation = () => {
+  if (reservedSectionListenerAttached) return;
+  document.addEventListener('click', (event) => {
+    const reservedTrigger = event.target.closest('#show-reserved');
+    if (reservedTrigger) {
+      event.preventDefault();
+      openPopover('reserved-modal');
+    }
+  });
+  reservedSectionListenerAttached = true;
+};
 
 // Popover management functions
 const openPopover = (id, cardData = null, cardElement = null) => {
@@ -1786,6 +1844,8 @@ const openPopover = (id, cardData = null, cardElement = null) => {
       return;
     }
     
+    closeOtherPopovers(id);
+    
     if (id === 'card-detail-popover' && cardData) {
       selectedCard = cardData;
       selectedCardElement = cardElement;
@@ -1794,6 +1854,8 @@ const openPopover = (id, cardData = null, cardElement = null) => {
       populateReservedModal();
     } else if (id === 'royal-modal') {
       populateRoyalCardsModal(royalCardSelectionMode);
+    } else if (id === 'wild-placement-modal') {
+      // Modal content is populated by showWildPlacementModal
     }
     popover.style.display = "flex";
   }
@@ -1817,6 +1879,11 @@ const closePopover = (id) => {
     scrollSelectedToken = null;
     boardWasRefilled = false;
   }
+  if (id === 'wild-placement-modal') {
+    // Clear pending wild card if modal is closed without placement
+    // This ensures resources aren't lost if user cancels or closes modal
+    pendingWildCard = null;
+  }
   if (id === 'royal-modal' && !royalCardSelectionMode) {
     // If closing royal modal in non-selection mode, make sure blocking is removed
     const gameContainer = document.querySelector('.game-container');
@@ -1824,6 +1891,16 @@ const closePopover = (id) => {
       gameContainer.classList.remove('dialog-blocking');
     }
   }
+};
+
+const closeOtherPopovers = (exceptId) => {
+  const overlays = document.querySelectorAll('.modal-overlay');
+  overlays.forEach(pop => {
+    const modalId = pop.id;
+    if (modalId && modalId !== exceptId && pop.style.display !== 'none') {
+      closePopover(modalId);
+    }
+  });
 };
 
 // Reserved cards modal rendering
@@ -1879,6 +1956,159 @@ const populateReservedModal = () => {
       openPopover('card-detail-popover', card, null);
     });
   });
+};
+
+// Wild card placement modal
+const showWildPlacementModal = () => {
+  if (!pendingWildCard) return;
+  
+  const modalBody = document.querySelector('#wild-placement-modal .modal-body');
+  if (!modalBody) return;
+  
+  const { playerId } = pendingWildCard;
+  const { cards, wildStacks } = getPlayerCards(playerId);
+  const colors = ['blue', 'white', 'green', 'red', 'black'];
+  
+  // Get valid color stacks based on rules:
+  // 1. Pile must have at least one card (wild can't be first)
+  // 2. Wild can't be placed on top of another wild
+  const validColors = colors.filter(color => {
+    const cardCount = cards[color] || 0;
+    // Must have at least one card already
+    if (cardCount === 0) return false;
+    // Can't place on top of another wild
+    if (wildStacks[color]) return false;
+    return true;
+  });
+  
+  if (validColors.length === 0) {
+    modalBody.innerHTML = `
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:20px; padding:20px;">
+        <div style="color:#ff8a80; font-weight:600; text-align:center;">
+          You cannot place this wild card yet.<br/>
+          You need at least one non-wild card in a color stack,<br/>
+          and that stack cannot already have a wild on top.
+        </div>
+        <button onclick="closePopover('wild-placement-modal'); pendingWildCard = null;" class="action-button cancel-button">Close</button>
+      </div>
+    `;
+    openPopover('wild-placement-modal');
+    return;
+  }
+  
+  const colorOptions = validColors.map(color => {
+    const cardCount = cards[color] || 0;
+    const colorValue = getColorValue(color);
+    const colorName = color.charAt(0).toUpperCase() + color.slice(1);
+    return `
+      <div class="wild-color-option" data-color="${color}" style="
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 16px;
+        border: 2px solid ${colorValue};
+        border-radius: 8px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+      ">
+        <div style="
+          width: 60px;
+          height: 60px;
+          border-radius: 50%;
+          background: ${colorValue};
+          border: 3px solid #333;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.5em;
+          font-weight: bold;
+          color: white;
+          text-shadow: 0 0 3px rgba(0,0,0,0.5);
+        ">${cardCount}</div>
+        <div style="font-weight: 600; color: #333;">${colorName}</div>
+      </div>
+    `;
+  }).join('');
+  
+  modalBody.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:20px; padding:20px; height:100%; box-sizing:border-box;">
+      <div style="text-align:center;">
+        <h3 style="margin-bottom:8px; color:#f5f5f5;">Select a Color Stack</h3>
+        <p style="color:#e0e6ff; font-size:0.9em;">Choose which color stack to place this wild card in</p>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; flex:1; align-items:center;">
+        ${colorOptions}
+      </div>
+      <div style="display:flex; justify-content:center; margin-top:auto;">
+        <button onclick="closePopover('wild-placement-modal'); pendingWildCard = null;" class="action-button cancel-button">Cancel</button>
+      </div>
+    </div>
+  `;
+  
+  // Attach click handlers
+  modalBody.querySelectorAll('.wild-color-option').forEach(option => {
+    option.addEventListener('click', () => {
+      const color = option.getAttribute('data-color');
+      placeWildCard(color);
+    });
+    option.addEventListener('mouseenter', () => {
+      option.style.transform = 'scale(1.05)';
+      option.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+    });
+    option.addEventListener('mouseleave', () => {
+      option.style.transform = 'scale(1)';
+      option.style.boxShadow = 'none';
+    });
+  });
+  
+  openPopover('wild-placement-modal');
+};
+
+const placeWildCard = (color) => {
+  if (!pendingWildCard) return;
+  
+  const { card, fromReserve, reserveIndex, playerId, paymentPlan } = pendingWildCard;
+  const player = gameState.players[playerId];
+  
+  // NOW deduct resources - only when placement is confirmed
+  if (paymentPlan) {
+    ['gold', 'pearl', ...purchaseColors].forEach(colorToken => {
+      const spend = paymentPlan.spend[colorToken] || 0;
+      if (spend > 0) {
+        player.tokens[colorToken] = Math.max(0, (player.tokens[colorToken] || 0) - spend);
+        // Return spent tokens to the bag
+        gameState.bag[colorToken] = (gameState.bag[colorToken] || 0) + spend;
+      }
+    });
+  }
+  
+  // Mark the wild card with its color stack
+  card.wildColorStack = color;
+  
+  // Add card to player's collection
+  if (fromReserve && typeof reserveIndex === 'number' && reserveIndex >= 0) {
+    const reservedCard = player.reserves.splice(reserveIndex, 1)[0];
+    if (reservedCard) {
+      reservedCard.wildColorStack = color;
+      player.cards.push(reservedCard);
+    }
+  } else {
+    const level = card.level;
+    const levelKey = `level${level}`;
+    const index = card._pyramidIndex;
+    player.cards.push(card);
+    gameState.pyramid[levelKey].splice(index, 1);
+    if (gameState.decks[levelKey].length > 0) {
+      gameState.pyramid[levelKey].splice(index, 0, gameState.decks[levelKey].shift());
+    }
+  }
+  
+  pendingWildCard = null;
+  closePopover('wild-placement-modal');
+  renderGame();
+  checkAndShowRoyalCardSelection();
 };
 
 const showRoyalCardSelection = () => {
@@ -2646,6 +2876,9 @@ const renderScrollUsageSection = () => {
 const enterScrollSelectionMode = () => {
   scrollSelectionMode = true;
   scrollSelectedToken = null;
+  selectedTokens = [];
+  selectionError = null;
+  hideSelectionError();
   renderScrollUsageSection();
   // Update token overlays to allow single token selection
   renderTokenBoard();
@@ -2784,6 +3017,7 @@ window.confirmTokenSelection = confirmTokenSelection;
 window.refillBoard = refillBoard;
 window.enterScrollSelectionMode = enterScrollSelectionMode;
 window.cancelScrollSelection = cancelScrollSelection;
+window.closePopover = closePopover;
 window.confirmScrollSelection = confirmScrollSelection;
 window.selectRoyalCard = selectRoyalCard;
 window.confirmRoyalCardSelection = confirmRoyalCardSelection;
@@ -2976,6 +3210,7 @@ const renderGame = () => {
   // Re-attach event listeners
   setTimeout(() => {
     attachPopoverListeners();
+    attachReservedSectionDelegation();
     // Attach turn completion dialog handler
     const switchBtn = document.getElementById('switch-players-btn');
     if (switchBtn) {
