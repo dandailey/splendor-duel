@@ -619,7 +619,7 @@ const generateCostDisplay = (costs) => {
     }).join('');
 };
 
-const renderCardV2 = (card, levelClass) => {
+const renderCardV2 = (card, levelClass, isAffordable = false) => {
   const hasColor = card.color && card.color !== 'none';
   const isWild = card.color === 'wild';
   const isGrey = card.color === 'none';
@@ -632,8 +632,11 @@ const renderCardV2 = (card, levelClass) => {
     stripeClass = `colored-card ${getColorClass(card.color)}`;
   }
   
+  // Add affordable class if the card can be purchased
+  const affordableClass = isAffordable ? ' affordable' : '';
+  
   // Build card HTML with data attributes for tracking - using card-v2 class
-  let cardHTML = `<div class="card card-v2 ${levelClass}" data-clickable="card" data-popover="card-detail-popover" data-card-level="${card.level}" data-card-index="${card._pyramidIndex ?? ''}" data-card-id="${card.id ?? ''}">`;
+  let cardHTML = `<div class="card card-v2 ${levelClass}${affordableClass}" data-clickable="card" data-popover="card-detail-popover" data-card-level="${card.level}" data-card-index="${card._pyramidIndex ?? ''}" data-card-id="${card.id ?? ''}">`;
   
   // Render base first (stripes in background)
   // Top stripe (thick)
@@ -1046,6 +1049,26 @@ const getAffordability = (card, playerId) => {
   return { affordable, deficits };
 };
 
+// Check if a wild card can be placed on any valid color stack
+const canPlaceWildCard = (playerId) => {
+  const { cards, wildStacks } = getPlayerCards(playerId);
+  const colors = ['blue', 'white', 'green', 'red', 'black'];
+  
+  // Get valid color stacks based on rules:
+  // 1. Pile must have at least one card (wild can't be first)
+  // 2. Wild can't be placed on top of another wild
+  const validColors = colors.filter(color => {
+    const cardCount = cards[color] || 0;
+    // Must have at least one card already
+    if (cardCount === 0) return false;
+    // Can't place on top of another wild
+    if (wildStacks[color]) return false;
+    return true;
+  });
+  
+  return validColors.length > 0;
+};
+
 const formatDeficits = (deficits) => {
   const order = ['pearl', ...purchaseColors];
   const label = (c) => c.charAt(0).toUpperCase() + c.slice(1);
@@ -1254,6 +1277,11 @@ const renderPaymentContent = () => {
   // Build HTML
   const sections = [];
 
+  // Check if this is a wild card that can't be placed
+  const isWild = selectedCard && selectedCard.color === 'wild';
+  const canPlace = isWild ? canPlaceWildCard(paymentState.playerId) : true;
+
+  // Show resources section if available
   if (haveIcons.length > 0) {
     sections.push(`
       <div style="background:#ffffff; color:#222; padding:8px 10px; border-radius:8px; display:block; box-shadow:0 1px 2px rgba(0,0,0,.1);">
@@ -1261,12 +1289,18 @@ const renderPaymentContent = () => {
         <div style="display:flex; flex-wrap:wrap; align-items:center; gap:4px;">${haveIcons.join('')}</div>
       </div>
     `);
-  } else {
-    sections.push(`<div style="color:#ddd; font-style:italic;">You have no resources to buy this card</div>`);
   }
 
-  if (!affordable) {
+  // Show only ONE error message with priority:
+  // 1. No resources at all (highest priority)
+  // 2. Can't afford it (medium priority - only if have some resources)
+  // 3. Wild card can't be placed (lowest priority - only if affordable)
+  if (haveIcons.length === 0) {
+    sections.push(`<div style="margin-top:8px; color:#ff8a80;">You have no resources to buy this card.</div>`);
+  } else if (!affordable) {
     sections.push(`<div style="margin-top:8px; color:#ff8a80;">You cannot buy this card with your current resources.</div>`);
+  } else if (isWild && !canPlace) {
+    sections.push(`<div style="margin-top:8px; color:#ff8a80; font-weight:600;">You must have a non-wild color card to place this on to.</div>`);
   }
 
   if (affordable && (player.tokens.gold || 0) > 0) {
@@ -1337,7 +1371,9 @@ const renderPaymentContent = () => {
   const buyBtn = document.getElementById('buy-button');
   if (buyBtn) {
     const plan = computePaymentPlanWithGold(selectedCard, paymentState.playerId, paymentState.goldAssignments);
-    buyBtn.disabled = !plan.valid;
+    const isWild = selectedCard && selectedCard.color === 'wild';
+    const canPlace = isWild ? canPlaceWildCard(paymentState.playerId) : true;
+    buyBtn.disabled = !plan.valid || !canPlace;
     buyBtn.onclick = () => finalizePurchaseWithSelection();
   }
   // Update reserve button disabled state
@@ -1738,7 +1774,9 @@ const generateGameLayout = () => {
               </div>
               ${gameState.pyramid.level1.map((card, idx) => {
                 card._pyramidIndex = idx;
-                return renderCardV2(card, 'level-1-card');
+                const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+                const afford = getAffordability(card, currentPlayerId);
+                return renderCardV2(card, 'level-1-card', afford.affordable);
               }).join('')}
               <div class="card-spacer"></div>
               <div class="card-spacer"></div>
@@ -1764,7 +1802,9 @@ const generateGameLayout = () => {
               </div>
               ${gameState.pyramid.level2.map((card, idx) => {
                 card._pyramidIndex = idx;
-                return renderCardV2(card, 'level-2-card');
+                const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+                const afford = getAffordability(card, currentPlayerId);
+                return renderCardV2(card, 'level-2-card', afford.affordable);
               }).join('')}
             </div>
 
@@ -1776,7 +1816,9 @@ const generateGameLayout = () => {
               </div>
               ${gameState.pyramid.level3.map((card, idx) => {
                 card._pyramidIndex = idx;
-                return renderCardV2(card, 'level-3-card');
+                const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+                const afford = getAffordability(card, currentPlayerId);
+                return renderCardV2(card, 'level-3-card', afford.affordable);
               }).join('')}
               <div class="card-spacer"></div>
               <div class="card-spacer"></div>
@@ -1922,13 +1964,16 @@ const populateReservedModal = () => {
 
   const cardsHtml = reserves.map((card, idx) => {
     const afford = getAffordability(card, currentPlayerId);
+    const isWild = card.color === 'wild';
+    const canPlace = isWild ? canPlaceWildCard(currentPlayerId) : true;
+    const canBuy = afford.affordable && canPlace;
     const cardHtml = renderCardV2(card, `level-${card.level}-card`);
     return `
       <div class="reserved-card-wrapper" style="flex:0 0 30%; max-width:30%; display:flex; flex-direction:column; align-items:center; gap:10px; padding-bottom:14px;">
         <div style="display:flex; justify-content:center; align-items:center; transform: scale(1.4); transform-origin: top center; margin-bottom:30px;">
           ${cardHtml}
         </div>
-        <button class="action-button buy-button" ${afford.affordable ? '' : 'disabled'} data-reserve-index="${idx}">Buy</button>
+        <button class="action-button buy-button" ${canBuy ? '' : 'disabled'} data-reserve-index="${idx}">Buy</button>
       </div>
     `;
   }).join('');
@@ -1985,9 +2030,7 @@ const showWildPlacementModal = () => {
     modalBody.innerHTML = `
       <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:20px; padding:20px;">
         <div style="color:#ff8a80; font-weight:600; text-align:center;">
-          You cannot place this wild card yet.<br/>
-          You need at least one non-wild card in a color stack,<br/>
-          and that stack cannot already have a wild on top.
+          You must have a non-wild color card to place this on to.
         </div>
         <button onclick="closePopover('wild-placement-modal'); pendingWildCard = null;" class="action-button cancel-button">Close</button>
       </div>
@@ -2271,6 +2314,9 @@ const populateCardDetailPopover = (card) => {
   
   const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const afford = getAffordability(card, currentPlayerId);
+  const isWild = card.color === 'wild';
+  const canPlace = isWild ? canPlaceWildCard(currentPlayerId) : true;
+  const canBuy = afford.affordable && canPlace;
 
   const fromReserve = purchaseContext && purchaseContext.source === 'reserve';
   modalBody.innerHTML = `
@@ -2285,7 +2331,7 @@ const populateCardDetailPopover = (card) => {
         </div>
       </div>
       <div style="display:flex; gap:10px; justify-content:center; padding-top:6px; margin-top:auto;">
-        <button id="buy-button" class="action-button buy-button" ${afford.affordable ? '' : 'disabled'}>Buy</button>
+        <button id="buy-button" class="action-button buy-button" ${canBuy ? '' : 'disabled'}>Buy</button>
         <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Close</button>
       </div>
     </div>
@@ -3145,6 +3191,40 @@ const switchPlayers = () => {
     // Update hand display
     if (handDisplay) {
       handDisplay.innerHTML = renderPlayerHand(turnDisplayState.activePlayerId);
+    }
+    
+    // Update pyramid card highlighting for the new current player
+    const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+    const pyramidContainer = document.querySelector('.card-pyramid');
+    if (pyramidContainer) {
+      // Update all pyramid cards by level
+      const allLevels = [
+        { key: 'level1', level: 1 },
+        { key: 'level2', level: 2 },
+        { key: 'level3', level: 3 }
+      ];
+      
+      allLevels.forEach(({ key, level }) => {
+        const cards = gameState.pyramid[key];
+        // Find all card elements for this level
+        const cardElements = Array.from(
+          pyramidContainer.querySelectorAll(`.card-v2[data-card-level="${level}"]`)
+        );
+        
+        // Match cards by their index attribute (set during rendering)
+        cardElements.forEach(cardElement => {
+          const cardIndex = parseInt(cardElement.getAttribute('data-card-index'), 10);
+          if (!isNaN(cardIndex) && cardIndex < cards.length) {
+            const card = cards[cardIndex];
+            const afford = getAffordability(card, currentPlayerId);
+            if (afford.affordable) {
+              cardElement.classList.add('affordable');
+            } else {
+              cardElement.classList.remove('affordable');
+            }
+          }
+        });
+      });
     }
     
     // Remove transition class after a brief delay

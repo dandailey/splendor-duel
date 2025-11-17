@@ -265,11 +265,11 @@ body {
 /* Opponent power circle - positioned to stick out of upper right corner */
 .opponent-color-card .opponent-power-circle {
   position: absolute;
-  top: -5px;
-  right: -5px;
-  width: 16px;
-  height: 16px;
-  border-radius: 2.5px;
+  top: -3px;
+  right: -8px;
+  width: 21px;
+  height: 21px;
+  border-radius: 3.25px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -393,9 +393,9 @@ body {
 }
 
 .power-circle {
-  width: 24px;
-  height: 18px;
-  border-radius: 4px;
+  width: 31px;
+  height: 23px;
+  border-radius: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -997,6 +997,43 @@ body {
 .card:hover {
   transform: translateY(-5px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Affordable card highlighting - bright electric blue border and glow */
+.card-v2.affordable {
+  border: 3px solid #00D9FF;
+  box-shadow: 
+    0 0 10px rgba(0, 217, 255, 0.8),
+    0 0 20px rgba(0, 217, 255, 0.6),
+    0 0 30px rgba(0, 217, 255, 0.4),
+    0 1px 3px rgba(0, 0, 0, 0.2);
+  animation: affordablePulse 2s ease-in-out infinite;
+}
+
+@keyframes affordablePulse {
+  0%, 100% {
+    box-shadow: 
+      0 0 10px rgba(0, 217, 255, 0.8),
+      0 0 20px rgba(0, 217, 255, 0.6),
+      0 0 30px rgba(0, 217, 255, 0.4),
+      0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+  50% {
+    box-shadow: 
+      0 0 15px rgba(0, 217, 255, 1),
+      0 0 30px rgba(0, 217, 255, 0.8),
+      0 0 45px rgba(0, 217, 255, 0.6),
+      0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+}
+
+.card-v2.affordable:hover {
+  transform: translateY(-5px);
+  box-shadow: 
+    0 0 15px rgba(0, 217, 255, 1),
+    0 0 30px rgba(0, 217, 255, 0.8),
+    0 0 45px rgba(0, 217, 255, 0.6),
+    0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 /* Card background styling */
@@ -2516,11 +2553,11 @@ button.action-trigger {
 /* Power circle for color cards - positioned to stick out of upper right corner */
 .color-card .power-circle {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 20px;
-  height: 20px;
-  border-radius: 3.5px;
+  top: -3px;
+  right: -9px;
+  width: 26px;
+  height: 26px;
+  border-radius: 4.5px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2847,9 +2884,9 @@ button.action-trigger {
   }
   
   .color-card .power-circle {
-    width: 19px;
-    height: 19px;
-    border-radius: 3.75px;
+    width: 25px;
+    height: 25px;
+    border-radius: 4.25px;
     font-size: 0.65em;
   }
   
