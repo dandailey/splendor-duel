@@ -84,6 +84,17 @@ const previousCrownCounts = {
 let selectedRoyalCard = null;
 let royalCardSelectionMode = false;
 
+// Card ability processing state
+let bonusTokenMode = false;
+let bonusTokenRequiredColor = null;
+let stealTokenMode = false;
+let repeatTurnActive = false;
+
+// Token discard state
+let tokensToDiscard = [];
+let tokenDiscardMode = false;
+let requiredDiscardCount = 0; // Number of tokens that must be discarded
+
 const parseCSV = (csvText) => {
   const lines = csvText.trim().split('\n');
   const headers = lines[0].split(',').map(h => h.trim());
@@ -526,8 +537,6 @@ const generateWildIconSvg = (size = 28) => `
 `;
 
 const generateAbilityIcon = (card) => {
-  if (!card.ability) return '';
-  
   const icons = {
     'again': '🔄', // repeat icon
     'token': '💎', // token picker - we can discuss this
@@ -539,15 +548,27 @@ const generateAbilityIcon = (card) => {
     return `<span class="ability-icon">${generateWildIconSvg(18)}</span>`;
   }
 
-  if (icons[card.ability]) {
+  if (card.ability && icons[card.ability]) {
     return `<span class="ability-icon">${icons[card.ability]}</span>`;
   }
   
-  if (card.isDouble) {
-    return `<div class="double-bonus"><span class="color-circle ${getColorClass(card.color)}"></span><span class="color-circle ${getColorClass(card.color)}"></span><span class="double-plus">+1</span></div>`;
+  return '';
+};
+
+const generateDoubleIndicator = (card) => {
+  if (!card.isDouble || !card.color || card.color === 'none' || card.color === 'wild') {
+    return '';
   }
   
-  return '';
+  const colorClass = getColorClass(card.color);
+  const colorValue = getColorValue(card.color);
+  const borderColor = card.color === 'white' ? '#999' : 'white';
+  
+  // Two overlapping colored circles, styled like cost circles
+  return `<div class="double-indicator">
+    <div class="double-circle double-circle-back ${colorClass}" style="background-color: ${colorValue}; border-color: ${borderColor};"></div>
+    <div class="double-circle double-circle-front ${colorClass}" style="background-color: ${colorValue}; border-color: ${borderColor};"></div>
+  </div>`;
 };
 
 const generateCostDisplay = (costs) => {
@@ -695,11 +716,17 @@ const renderCardV2 = (card, levelClass, isAffordable = false) => {
     }
     
     // Render ability icons (non-crown)
-    if (card.ability || card.isDouble) {
+    if (card.ability) {
       cardHTML += '<span class="card-ability">';
       cardHTML += generateAbilityIcon(card);
       cardHTML += '</span>';
     }
+    
+    // Render double indicator (separate from ability icons)
+    if (card.isDouble) {
+      cardHTML += generateDoubleIndicator(card);
+    }
+    
     cardHTML += '</div>';
   }
   
@@ -790,11 +817,17 @@ const renderCard = (card, levelClass) => {
     }
     
     // Render ability icons (non-crown)
-    if (card.ability || card.isDouble) {
+    if (card.ability) {
       cardHTML += '<span class="card-ability">';
       cardHTML += generateAbilityIcon(card);
       cardHTML += '</span>';
     }
+    
+    // Render double indicator (separate from ability icons)
+    if (card.isDouble) {
+      cardHTML += generateDoubleIndicator(card);
+    }
+    
     cardHTML += '</div>';
   }
   
@@ -956,14 +989,17 @@ const getPlayerCards = (playerId) => {
   
   // Process cards in order to find the last card in each color stack
   player.cards.forEach(card => {
+    // Count double cards as 2 resources instead of 1
+    const cardValue = card.isDouble ? 2 : 1;
+    
     if (card.color === 'wild' && card.wildColorStack) {
       // Wild card belongs to a specific color stack
       const stackColor = card.wildColorStack;
-      cards[stackColor] = (cards[stackColor] || 0) + 1;
+      cards[stackColor] = (cards[stackColor] || 0) + cardValue;
       points[stackColor] = (points[stackColor] || 0) + card.points;
       lastCardByColor[stackColor] = card; // Track last card in this stack
     } else if (card.color && card.color !== 'none' && card.color !== 'wild') {
-      cards[card.color] = (cards[card.color] || 0) + 1;
+      cards[card.color] = (cards[card.color] || 0) + cardValue;
       points[card.color] = (points[card.color] || 0) + card.points;
       lastCardByColor[card.color] = card; // Track last card in this stack
     }
@@ -1389,6 +1425,333 @@ const renderPaymentContent = () => {
   }
 };
 
+// Process card abilities after acquisition
+const processCardAbilities = (card, playerId) => {
+  if (!card) return;
+  
+  const currentPlayer = playerId;
+  const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
+  
+  // Check for repeat turn ability (again)
+  if (card.ability === 'again') {
+    repeatTurnActive = true;
+    // Show repeat turn modal
+    showRepeatTurnModal();
+    return;
+  }
+  
+  // Check for bonus token ability (token/diamond)
+  if (card.ability === 'token') {
+    // Check if board has token of card's color
+    const requiredColor = card.color;
+    if (requiredColor && requiredColor !== 'none' && requiredColor !== 'wild') {
+      // Check if board has any token of this color
+      let hasToken = false;
+      for (let r = 0; r < gameState.board.length; r++) {
+        for (let c = 0; c < gameState.board[r].length; c++) {
+          if (gameState.board[r][c] === requiredColor) {
+            hasToken = true;
+            break;
+          }
+        }
+        if (hasToken) break;
+      }
+      
+      if (hasToken) {
+        bonusTokenMode = true;
+        bonusTokenRequiredColor = requiredColor;
+        // Show token board modal with bonus token mode
+        showTokenSelectionModal(true);
+        return;
+      }
+    }
+  }
+  
+  // Check for steal token ability (steal/hand)
+  if (card.ability === 'steal') {
+    // Check if opponent has any tokens (excluding gold)
+    const opponent = gameState.players[otherPlayer];
+    const stealableColors = ['blue', 'white', 'green', 'red', 'black', 'pearl'];
+    const hasStealableTokens = stealableColors.some(color => (opponent.tokens[color] || 0) > 0);
+    
+    if (hasStealableTokens) {
+      stealTokenMode = true;
+      showStealTokenModal();
+      return;
+    }
+  }
+  
+  // No special abilities or abilities already processed
+  // Show normal turn completion
+  if (!repeatTurnActive) {
+    checkAndShowRoyalCardSelection();
+  }
+};
+
+// Show repeat turn modal
+const showRepeatTurnModal = () => {
+  const dialog = document.getElementById('repeat-turn-dialog');
+  if (!dialog) return;
+  
+  // Add class to game container to block interactions
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.add('dialog-blocking');
+  }
+  
+  dialog.style.display = 'flex';
+};
+
+const closeRepeatTurnModal = () => {
+  const dialog = document.getElementById('repeat-turn-dialog');
+  if (dialog) {
+    dialog.style.display = 'none';
+  }
+  
+  // Remove blocking class from game container
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.remove('dialog-blocking');
+  }
+  
+  // Check token limit before allowing repeat turn to continue
+  // Player must discard down to 10 tokens before continuing
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const totalTokens = getTotalTokenCount(currentPlayerId);
+  if (totalTokens > 10) {
+    // Show discard modal - player must discard before continuing
+    showTokenDiscardModal();
+    // Don't reset repeatTurnActive yet - it will be reset after discarding
+    return;
+  }
+  
+  // Token count is OK, reset repeat turn flag and continue
+  repeatTurnActive = false;
+};
+
+// Show token selection modal (optionally in bonus token mode)
+const showTokenSelectionModal = (isBonusMode = false) => {
+  const modal = document.getElementById('token-selection-modal');
+  if (!modal) return;
+  
+  const modalBody = modal.querySelector('.modal-body');
+  const layout = document.getElementById('token-modal-layout');
+  const tokenBoardSection = layout?.querySelector('.token-board-section');
+  const tokenActions = modal.querySelector('.token-modal-actions');
+  
+  // Handle bonus token mode
+  if (isBonusMode && modalBody && layout) {
+    // Remove existing message if any
+    const existing = modalBody.querySelector('#bonus-token-message');
+    if (existing) existing.remove();
+    
+    // Create message div on the right side
+    const messageDiv = document.createElement('div');
+    messageDiv.id = 'bonus-token-message';
+    const colorName = bonusTokenRequiredColor || 'this color';
+    messageDiv.innerHTML = `
+      <div style="
+        background: rgba(74, 144, 226, 0.95);
+        color: white;
+        padding: 16px 20px;
+        border-radius: 8px;
+        font-weight: bold;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        max-width: 200px;
+      ">
+        <div style="font-size: 1.1em; margin-bottom: 8px;">Bonus Token</div>
+        <div style="font-size: 0.9em;">Select ONE ${colorName} token</div>
+      </div>
+    `;
+    
+    // Add message section to layout (on the right)
+    const messageSection = document.createElement('div');
+    messageSection.id = 'bonus-token-message-section';
+    messageSection.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 20px;
+    `;
+    messageSection.appendChild(messageDiv);
+    
+    // Update layout to show message on right, board on left
+    layout.style.cssText = `
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      width: 100%;
+    `;
+    
+    // Shift board section to the left
+    if (tokenBoardSection) {
+      tokenBoardSection.style.cssText = `
+        flex: 0 0 auto;
+        display: flex;
+        justify-content: flex-start;
+      `;
+    }
+    
+    // Add message section to layout
+    layout.appendChild(messageSection);
+    
+    // Hide Cancel and Refill buttons, keep only Confirm
+    if (tokenActions) {
+      const cancelBtn = tokenActions.querySelector('.btn-cancel');
+      const refillBtn = tokenActions.querySelector('.btn-refill');
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      if (refillBtn) refillBtn.style.display = 'none';
+    }
+    
+    // Hide scroll usage section in bonus token mode
+    const scrollSection = document.getElementById('scroll-usage-section');
+    if (scrollSection) {
+      scrollSection.style.display = 'none';
+    }
+  } else {
+    // Normal mode - restore layout
+    if (layout) {
+      layout.style.cssText = '';
+      const messageSection = layout.querySelector('#bonus-token-message-section');
+      if (messageSection) messageSection.remove();
+    }
+    if (tokenBoardSection) {
+      tokenBoardSection.style.cssText = '';
+    }
+    if (tokenActions) {
+      const cancelBtn = tokenActions.querySelector('.btn-cancel');
+      const refillBtn = tokenActions.querySelector('.btn-refill');
+      if (cancelBtn) cancelBtn.style.display = '';
+      if (refillBtn) refillBtn.style.display = '';
+    }
+    
+    // Show scroll usage section in normal mode
+    const scrollSection = document.getElementById('scroll-usage-section');
+    if (scrollSection) {
+      scrollSection.style.display = '';
+    }
+  }
+  
+  renderTokenBoard();
+  attachTokenBoardListeners();
+  updateRefillButtonState();
+  renderScrollUsageSection();
+  openPopover('token-selection-modal');
+};
+
+// Show steal token modal
+const showStealTokenModal = () => {
+  const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
+  const opponent = gameState.players[otherPlayer];
+  
+  const stealableColors = ['blue', 'white', 'green', 'red', 'black', 'pearl'];
+  const availableColors = stealableColors.filter(color => (opponent.tokens[color] || 0) > 0);
+  
+  if (availableColors.length === 0) {
+    // No tokens to steal, skip ability
+    stealTokenMode = false;
+    if (!repeatTurnActive) {
+      checkAndShowRoyalCardSelection();
+    }
+    return;
+  }
+  
+  // Create modal HTML
+  const modalHTML = `
+    <div class="modal-overlay card-modal-overlay" id="steal-token-modal" style="display: flex;">
+      <div class="modal-content card-detail-content">
+        <div class="modal-body" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px;">
+          <h3 style="margin: 0; color: #333; font-size: 1.3em;">Steal a Token</h3>
+          <p style="margin: 0; color: #666; text-align: center;">Select a token color to steal from your opponent:</p>
+          <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
+            ${availableColors.map(color => {
+              const tokenSvg = color === 'pearl' 
+                ? generatePearlIcon(40) 
+                : generateGemTokenIcon(color, 40);
+              return `
+                <div class="steal-token-option" data-color="${color}" style="
+                  width: 60px;
+                  height: 60px;
+                  border-radius: 50%;
+                  border: 3px solid #333;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  cursor: pointer;
+                  transition: all 0.2s;
+                  background: ${getColorValue(color)};
+                  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                ">
+                  ${tokenSvg}
+                </div>
+              `;
+            }).join('')}
+          </div>
+          <div style="display: flex; gap: 12px; margin-top: 12px;">
+            <button class="action-button cancel-button" onclick="closeStealTokenModal()">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Remove existing modal if any
+  const existing = document.getElementById('steal-token-modal');
+  if (existing) existing.remove();
+  
+  // Add modal to body
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+  
+  // Attach click handlers
+  document.querySelectorAll('.steal-token-option').forEach(option => {
+    option.addEventListener('click', () => {
+      const color = option.getAttribute('data-color');
+      confirmStealToken(color);
+    });
+    option.addEventListener('mouseenter', () => {
+      option.style.transform = 'scale(1.1)';
+      option.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+    });
+    option.addEventListener('mouseleave', () => {
+      option.style.transform = 'scale(1)';
+      option.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
+    });
+  });
+};
+
+const closeStealTokenModal = () => {
+  const modal = document.getElementById('steal-token-modal');
+  if (modal) {
+    modal.remove();
+  }
+  stealTokenMode = false;
+  if (!repeatTurnActive) {
+    checkAndShowRoyalCardSelection();
+  }
+};
+
+const confirmStealToken = (color) => {
+  const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
+  
+  // Transfer one token from opponent to player
+  if (gameState.players[otherPlayer].tokens[color] > 0) {
+    gameState.players[otherPlayer].tokens[color]--;
+    gameState.players[currentPlayer].tokens[color]++;
+  }
+  
+  closeStealTokenModal();
+  renderGame();
+  
+  // Continue with turn completion if no repeat turn
+  if (!repeatTurnActive) {
+    checkAndShowRoyalCardSelection();
+  }
+};
+
 const finalizePurchaseWithSelection = () => {
   if (!paymentState || !selectedCard) return;
   const { playerId } = paymentState;
@@ -1449,7 +1812,10 @@ const finalizePurchaseWithSelection = () => {
   purchaseContext = null;
   closePopover('card-detail-popover');
   renderGame();
-  checkAndShowRoyalCardSelection();
+  
+  // Process card abilities after acquisition
+  const acquiredCard = player.cards[player.cards.length - 1];
+  processCardAbilities(acquiredCard, playerId);
 };
 
 const renderPlayerColorCard = (color, cardCount, tokenCount, points, hasWild = false) => {
@@ -1764,6 +2130,32 @@ const generateGameLayout = () => {
               <button class="action-button switch-players-button" id="switch-players-btn">Switch Players</button>
             </div>
           </div>
+
+          <!-- Repeat Turn Dialog -->
+          <div class="modal-overlay card-modal-overlay" id="repeat-turn-dialog" style="display: none;">
+            <div class="modal-content turn-completion-content">
+              <div class="turn-completion-message">
+                <h3>Repeat Turn!</h3>
+                <p>You get another turn. Continue playing!</p>
+              </div>
+              <button class="action-button switch-players-button" onclick="closeRepeatTurnModal()">Okay</button>
+            </div>
+          </div>
+
+          <!-- Token Discard Modal -->
+          <div class="modal-overlay card-modal-overlay" id="token-discard-modal" style="display: none;">
+            <div class="modal-content token-discard-content">
+              <div class="token-discard-message" id="token-discard-message">
+                <!-- Message will be populated dynamically -->
+              </div>
+              <div class="token-discard-grid" id="token-discard-grid">
+                <!-- Tokens will be populated dynamically -->
+              </div>
+              <div class="token-discard-actions">
+                <button class="btn-confirm" id="confirm-discard-btn" onclick="confirmTokenDiscard()">Confirm</button>
+              </div>
+            </div>
+          </div>
           
           <div class="card-pyramid">
             <div class="pyramid-row">
@@ -1920,6 +2312,37 @@ const closePopover = (id) => {
     scrollSelectionMode = false;
     scrollSelectedToken = null;
     boardWasRefilled = false;
+    // Clear bonus token mode
+    bonusTokenMode = false;
+    bonusTokenRequiredColor = null;
+    // Remove bonus token message and restore layout
+    const modal = document.getElementById('token-selection-modal');
+    if (modal) {
+      const message = modal.querySelector('#bonus-token-message');
+      if (message) message.remove();
+      const messageSection = modal.querySelector('#bonus-token-message-section');
+      if (messageSection) messageSection.remove();
+      const layout = document.getElementById('token-modal-layout');
+      if (layout) {
+        layout.style.cssText = '';
+      }
+      const tokenBoardSection = layout?.querySelector('.token-board-section');
+      if (tokenBoardSection) {
+        tokenBoardSection.style.cssText = '';
+      }
+      const tokenActions = modal.querySelector('.token-modal-actions');
+      if (tokenActions) {
+        const cancelBtn = tokenActions.querySelector('.btn-cancel');
+        const refillBtn = tokenActions.querySelector('.btn-refill');
+        if (cancelBtn) cancelBtn.style.display = '';
+        if (refillBtn) refillBtn.style.display = '';
+      }
+      // Restore scroll usage section
+      const scrollSection = document.getElementById('scroll-usage-section');
+      if (scrollSection) {
+        scrollSection.style.display = '';
+      }
+    }
   }
   if (id === 'wild-placement-modal') {
     // Clear pending wild card if modal is closed without placement
@@ -2151,7 +2574,10 @@ const placeWildCard = (color) => {
   pendingWildCard = null;
   closePopover('wild-placement-modal');
   renderGame();
-  checkAndShowRoyalCardSelection();
+  
+  // Process card abilities after acquisition
+  const acquiredCard = player.cards[player.cards.length - 1];
+  processCardAbilities(acquiredCard, playerId);
 };
 
 const showRoyalCardSelection = () => {
@@ -2441,6 +2867,29 @@ const toggleTokenSelection = (row, col) => {
     return;
   }
   
+  // Bonus token mode: only allow ONE token of the required color
+  if (bonusTokenMode) {
+    // If clicking the same token, deselect it
+    const index = selectedTokens.findIndex(t => t.row === row && t.col === col);
+    if (index !== -1) {
+      selectedTokens.splice(index, 1);
+    } else {
+      // Check if token matches required color
+      if (token !== bonusTokenRequiredColor) {
+        showSelectionError(`You must select a ${bonusTokenRequiredColor} token`);
+        return;
+      }
+      // Clear any existing selection and select this one
+      selectedTokens = [{ row, col, token }];
+    }
+    // Clear error message
+    selectionError = null;
+    hideSelectionError();
+    // Re-render the token board to show selection state
+    renderTokenBoard();
+    return;
+  }
+  
   // Normal token selection mode
   // Toggle selection
   const index = selectedTokens.findIndex(t => t.row === row && t.col === col);
@@ -2460,6 +2909,24 @@ const toggleTokenSelection = (row, col) => {
 
 // Validate token selection
 const validateTokenSelection = () => {
+  // Bonus token mode: only allow ONE token of the required color
+  if (bonusTokenMode) {
+    if (selectedTokens.length === 0) {
+      return { valid: false, message: `You must select ONE ${bonusTokenRequiredColor} token` };
+    }
+    if (selectedTokens.length > 1) {
+      return { valid: false, message: 'You can only select ONE token as bonus' };
+    }
+    // Check if the selected token matches the required color
+    const selectedToken = selectedTokens[0];
+    const token = gameState.board[selectedToken.row][selectedToken.col];
+    if (token !== bonusTokenRequiredColor) {
+      return { valid: false, message: `You must select a ${bonusTokenRequiredColor} token` };
+    }
+    return { valid: true };
+  }
+  
+  // Normal token selection mode
   if (selectedTokens.length === 0 || selectedTokens.length > 3) {
     return { valid: false, message: 'You must select between 1 and 3 tokens' };
   }
@@ -2758,9 +3225,47 @@ const confirmTokenSelection = () => {
   // Close modal before re-rendering
   closePopover('token-selection-modal');
   
+  // Clear bonus token mode if active
+  if (bonusTokenMode) {
+    bonusTokenMode = false;
+    bonusTokenRequiredColor = null;
+    // Remove bonus token message and restore layout
+    const modal = document.getElementById('token-selection-modal');
+    if (modal) {
+      const message = modal.querySelector('#bonus-token-message');
+      if (message) message.remove();
+      const messageSection = modal.querySelector('#bonus-token-message-section');
+      if (messageSection) messageSection.remove();
+      const layout = document.getElementById('token-modal-layout');
+      if (layout) {
+        layout.style.cssText = '';
+      }
+      const tokenBoardSection = layout?.querySelector('.token-board-section');
+      if (tokenBoardSection) {
+        tokenBoardSection.style.cssText = '';
+      }
+      const tokenActions = modal.querySelector('.token-modal-actions');
+      if (tokenActions) {
+        const cancelBtn = tokenActions.querySelector('.btn-cancel');
+        const refillBtn = tokenActions.querySelector('.btn-refill');
+        if (cancelBtn) cancelBtn.style.display = '';
+        if (refillBtn) refillBtn.style.display = '';
+      }
+      // Restore scroll usage section
+      const scrollSection = document.getElementById('scroll-usage-section');
+      if (scrollSection) {
+        scrollSection.style.display = '';
+      }
+    }
+  }
+  
   // Re-render game to show updated tokens
   renderGame();
-  checkAndShowRoyalCardSelection();
+  
+  // Continue with turn completion if no repeat turn
+  if (!repeatTurnActive) {
+    checkAndShowRoyalCardSelection();
+  }
 };
 
 // Generate spiral positions from center (2,2) outward clockwise for 5x5 board
@@ -3052,8 +3557,8 @@ const confirmRoyalCardSelection = () => {
   // Re-render game
   renderGame();
   
-  // Show normal turn completion dialog
-  showTurnCompletionDialog();
+  // Process card abilities after acquisition
+  processCardAbilities(royalCard, currentPlayerId);
 };
 
 // Expose to global scope for onclick handlers
@@ -3067,6 +3572,9 @@ window.closePopover = closePopover;
 window.confirmScrollSelection = confirmScrollSelection;
 window.selectRoyalCard = selectRoyalCard;
 window.confirmRoyalCardSelection = confirmRoyalCardSelection;
+window.closeStealTokenModal = closeStealTokenModal;
+window.confirmStealToken = confirmStealToken;
+window.closeRepeatTurnModal = closeRepeatTurnModal;
 // Deprecated: payment now renders inline in the same modal
 
 // Close any open popover on escape key
@@ -3074,14 +3582,24 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     const openPopovers = document.querySelectorAll(".modal-overlay[style*='flex']");
     openPopovers.forEach(popover => {
-      // Don't close turn completion dialog or royal modal in selection mode with ESC
-      if (popover.id !== 'turn-completion-dialog' && !(popover.id === 'royal-modal' && royalCardSelectionMode)) {
+      // Don't close turn completion dialog, repeat turn dialog, token discard modal, or royal modal in selection mode with ESC
+      if (popover.id !== 'turn-completion-dialog' && 
+          popover.id !== 'repeat-turn-dialog' && 
+          popover.id !== 'token-discard-modal' &&
+          !(popover.id === 'royal-modal' && royalCardSelectionMode)) {
         popover.style.display = "none";
       }
     });
   }
 });
 
+
+// Helper function to count total tokens in player hand (including pearls and golds)
+const getTotalTokenCount = (playerId) => {
+  const player = gameState.players[playerId];
+  const tokenColors = ['blue', 'white', 'green', 'black', 'red', 'pearl', 'gold'];
+  return tokenColors.reduce((total, color) => total + (player.tokens[color] || 0), 0);
+};
 
 // Turn switching system functions
 // Check if player has earned a royal card and show selection if needed
@@ -3095,6 +3613,14 @@ const checkAndShowRoyalCardSelection = () => {
   const earnedRoyalCard = 
     (previousCrowns < 3 && currentCrowns >= 3 && currentCrowns <= 5) ||
     (previousCrowns >= 3 && previousCrowns <= 5 && currentCrowns >= 6);
+  
+  // Check token limit before showing royal card selection or turn completion
+  const totalTokens = getTotalTokenCount(currentPlayerId);
+  if (totalTokens > 10) {
+    // Player must discard tokens first
+    showTokenDiscardModal();
+    return;
+  }
   
   if (earnedRoyalCard) {
     // Update previous count
@@ -3110,6 +3636,12 @@ const checkAndShowRoyalCardSelection = () => {
 };
 
 const showTurnCompletionDialog = () => {
+  // Skip turn completion dialog if repeat turn is active
+  if (repeatTurnActive) {
+    repeatTurnActive = false; // Reset for next turn
+    return;
+  }
+  
   const dialog = document.getElementById('turn-completion-dialog');
   if (!dialog) return;
   
@@ -3134,6 +3666,168 @@ const closeTurnCompletionDialog = () => {
     gameContainer.classList.remove('dialog-blocking');
   }
 };
+
+// Show token discard modal when player has more than 10 tokens
+const showTokenDiscardModal = () => {
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const player = gameState.players[currentPlayerId];
+  const totalTokens = getTotalTokenCount(currentPlayerId);
+  const tokensToDiscardCount = totalTokens - 10;
+  
+  // Reset discard state
+  tokensToDiscard = [];
+  tokenDiscardMode = true;
+  requiredDiscardCount = tokensToDiscardCount;
+  
+  // Add blocking class to game container
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.add('dialog-blocking');
+  }
+  
+  const modal = document.getElementById('token-discard-modal');
+  const messageEl = document.getElementById('token-discard-message');
+  const gridEl = document.getElementById('token-discard-grid');
+  const confirmBtn = document.getElementById('confirm-discard-btn');
+  
+  if (!modal || !messageEl || !gridEl) return;
+  
+  // Set message (just the instruction, no header)
+  messageEl.innerHTML = `
+    <p>You may not keep more than 10 tokens. Select ${tokensToDiscardCount} token${tokensToDiscardCount > 1 ? 's' : ''} to discard.</p>
+  `;
+  
+  // Build token grid with dynamic sizing/columns
+  const tokenColors = ['blue', 'white', 'green', 'red', 'black', 'pearl', 'gold'];
+  const totalTokenItems = tokenColors.reduce((sum, color) => sum + (player.tokens[color] || 0), 0);
+  let columns = 4;
+  if (totalTokenItems > 15) {
+    columns = 6;
+  } else if (totalTokenItems > 12) {
+    columns = 5;
+  }
+  const iconSize = columns >= 6 ? 26 : columns === 5 ? 30 : 34;
+  gridEl.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+  
+  let gridHTML = '';
+  
+  tokenColors.forEach(color => {
+    const count = player.tokens[color] || 0;
+    for (let i = 0; i < count; i++) {
+      const tokenId = `${color}-${i}`;
+      let iconSvg;
+      if (color === 'pearl') {
+        iconSvg = generatePearlIcon(iconSize);
+      } else if (color === 'gold') {
+        iconSvg = generateGoldIcon(iconSize);
+      } else {
+        iconSvg = generateGemTokenIcon(color, iconSize);
+      }
+      
+      gridHTML += `
+        <div class="token-discard-item" data-token-id="${tokenId}" data-token-color="${color}" onclick="toggleTokenDiscard('${tokenId}', '${color}')">
+          ${iconSvg}
+        </div>
+      `;
+    }
+  });
+  
+  gridEl.innerHTML = gridHTML;
+  
+  // Update confirm button state
+  updateDiscardConfirmButton();
+  
+  // Show modal
+  modal.style.display = 'flex';
+};
+
+// Toggle token selection for discarding
+const toggleTokenDiscard = (tokenId, color) => {
+  if (!tokenDiscardMode) return;
+  
+  const index = tokensToDiscard.findIndex(t => t.id === tokenId);
+  const tokenEl = document.querySelector(`[data-token-id="${tokenId}"]`);
+  
+  if (index >= 0) {
+    // Deselect
+    tokensToDiscard.splice(index, 1);
+    if (tokenEl) tokenEl.classList.remove('selected');
+  } else {
+    // Only allow selection if we haven't reached the required count
+    if (tokensToDiscard.length < requiredDiscardCount) {
+      tokensToDiscard.push({ id: tokenId, color });
+      if (tokenEl) tokenEl.classList.add('selected');
+    }
+  }
+  
+  updateDiscardConfirmButton();
+};
+
+// Update confirm button enabled state
+const updateDiscardConfirmButton = () => {
+  const confirmBtn = document.getElementById('confirm-discard-btn');
+  
+  if (confirmBtn) {
+    const canConfirm = tokensToDiscard.length === requiredDiscardCount;
+    confirmBtn.disabled = !canConfirm;
+    confirmBtn.style.opacity = canConfirm ? '1' : '0.5';
+    confirmBtn.style.cursor = canConfirm ? 'pointer' : 'not-allowed';
+  }
+};
+
+// Confirm token discard and return tokens to bag
+const confirmTokenDiscard = () => {
+  // Validate selection
+  if (tokensToDiscard.length !== requiredDiscardCount) {
+    return;
+  }
+  
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  
+  const player = gameState.players[currentPlayerId];
+  
+  // Remove tokens from player and return to bag
+  tokensToDiscard.forEach(({ color }) => {
+    if (player.tokens[color] > 0) {
+      player.tokens[color]--;
+      gameState.bag[color] = (gameState.bag[color] || 0) + 1;
+    }
+  });
+  
+  // Clear discard state
+  tokensToDiscard = [];
+  tokenDiscardMode = false;
+  requiredDiscardCount = 0;
+  
+  // Close modal
+  const modal = document.getElementById('token-discard-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  
+  // Remove blocking class
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.remove('dialog-blocking');
+  }
+  
+  // Re-render game
+  renderGame();
+  
+  // If we were in a repeat turn, reset the flag and continue playing
+  // Otherwise, continue with normal turn completion flow
+  if (repeatTurnActive) {
+    repeatTurnActive = false;
+    // Player can continue their repeat turn
+  } else {
+    // Continue with normal turn completion flow
+    checkAndShowRoyalCardSelection();
+  }
+};
+
+// Expose token discard functions to global scope (after they're defined)
+window.confirmTokenDiscard = confirmTokenDiscard;
+window.toggleTokenDiscard = toggleTokenDiscard;
 
 const switchPlayers = () => {
   // Swap the display state
@@ -3338,4 +4032,3 @@ init();
 
 
 // Remove global popover close on ESC, it's already handled above
-window.closePopover = closePopover;
