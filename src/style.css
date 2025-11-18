@@ -60,6 +60,239 @@ body {
   min-height: 0;
 }
 
+/* Sync controls bar */
+.sync-controls-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: #f8f8f8;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #9e9e9e;
+  display: inline-block;
+}
+
+.sync-mode {
+  font-weight: 500;
+  color: #666;
+}
+
+.sync-session-id {
+  font-family: monospace;
+  font-size: 10px;
+  color: #888;
+  margin-left: 8px;
+}
+
+.session-id-display,
+.session-link-display {
+  background: #f0f0f0;
+  padding: 10px;
+  border-radius: 4px;
+  margin: 10px 0;
+  font-size: 12px;
+  word-break: break-all;
+  font-family: monospace;
+}
+
+.qr-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.qr-wrapper img {
+  width: 170px;
+  height: 170px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+  padding: 6px;
+}
+
+.sync-turn-indicator {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #999;
+}
+
+.sync-turn-indicator.active {
+  color: #4caf50;
+}
+
+.sync-turn-indicator.waiting {
+  color: #ff9800;
+}
+
+.sync-turn-warning {
+  display: none;
+  padding: 4px 12px;
+  font-size: 11px;
+  text-align: center;
+  background: #fff3e0;
+  color: #bf360c;
+  border-bottom: 1px solid #ffe0b2;
+}
+
+.sync-turn-warning.visible {
+  display: block;
+}
+
+.turn-summary-container {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  flex-shrink: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.turn-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  flex-shrink: 1;
+  min-height: 0;
+}
+
+.turn-summary-entry {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.turn-summary-entry:last-child {
+  border-bottom: none;
+}
+
+.turn-summary-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f2f2f2;
+}
+
+.turn-summary-badge {
+  font-size: 10px;
+  color: #ffe3b0;
+  border: 1px solid rgba(255, 227, 176, 0.6);
+  background: rgba(255, 227, 176, 0.15);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.turn-summary-events {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.turn-event-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: #f0f0f0;
+}
+
+.turn-event-label {
+  min-width: 85px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.turn-event-content {
+  flex: 1;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.turn-event-note {
+  display: inline-flex;
+  margin-left: 6px;
+  font-size: 11px;
+  color: #ffe3b0;
+  background: rgba(255, 227, 176, 0.15);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.token-icon-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.token-icon-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border-radius: 20px;
+  padding: 0;
+  box-shadow: none;
+}
+
+.token-count {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.settings-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  color: #666;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.settings-btn:hover {
+  background-color: #e0e0e0;
+}
+
+.mode-selection-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 20px 0;
+  width: 100%;
+}
+
+.mode-selection-buttons .action-button {
+  width: 100%;
+  padding: 14px 24px;
+  font-size: 15px;
+}
+
 /* Top bar with token board (left) and opponent stats (right) */
 .top-bar {
   display: flex;
@@ -2109,11 +2342,28 @@ button.action-trigger {
   align-items: center;
   justify-content: center;
   z-index: 120;
+  pointer-events: auto;
 }
 
 /* Card detail popover fills the pyramid container */
 .modal-overlay.card-modal-overlay {
   position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
+
+#mode-selection-modal,
+#join-game-modal,
+#settings-modal,
+#session-info-modal {
+  position: absolute;
+  z-index: 200;
+  pointer-events: auto;
   top: 0;
   left: 0;
   right: 0;
@@ -3489,8 +3739,29 @@ button.action-trigger {
   border-radius: 8px;
   font-size: 16px;
   font-weight: bold;
-  cursor: pointer;
+  cursor: pointer !important;
   transition: all 0.2s;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 10;
+}
+
+.action-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
+  background: linear-gradient(135deg, #7a8ef0 0%, #8655b8 100%);
+}
+
+.action-button:active {
+  transform: translateY(0);
+}
+
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .buy-button {
@@ -3620,6 +3891,15 @@ button.action-trigger {
 .btn-cancel {
   background-color: #999;
   color: white;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  padding: 8px 16px;
+  font-size: 14px;
+  border: none;
+  border-radius: 6px;
+  transition: all 0.2s;
+  position: relative;
+  z-index: 10;
 }
 
 .btn-cancel:hover {
@@ -3682,23 +3962,39 @@ button.action-trigger {
 .game-container.dialog-blocking #repeat-turn-dialog,
 .game-container.dialog-blocking #repeat-turn-dialog *,
 .game-container.dialog-blocking #royal-modal,
-.game-container.dialog-blocking #royal-modal * {
+.game-container.dialog-blocking #royal-modal *,
+.game-container.dialog-blocking #mode-selection-modal,
+.game-container.dialog-blocking #mode-selection-modal *,
+.game-container.dialog-blocking #join-game-modal,
+.game-container.dialog-blocking #join-game-modal *,
+.game-container.dialog-blocking #settings-modal,
+.game-container.dialog-blocking #settings-modal *,
+.game-container.dialog-blocking #session-info-modal,
+.game-container.dialog-blocking #session-info-modal * {
   pointer-events: auto;
 }
 
 .turn-completion-content {
   max-width: 320px;
   width: 90%;
+  max-height: 85vh;
   padding: 24px;
   text-align: center;
   background: white;
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   animation: slideUp 0.3s ease;
+  pointer-events: auto;
+  position: relative;
+  z-index: 201;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .turn-completion-message {
   margin-bottom: 20px;
+  flex-shrink: 0;
 }
 
 .turn-completion-message h3 {
@@ -3713,6 +4009,7 @@ button.action-trigger {
   color: #555;
   margin: 0;
   font-weight: 500;
+  line-height: 1.5;
 }
 
 .switch-players-button {
@@ -3727,6 +4024,8 @@ button.action-trigger {
   cursor: pointer;
   transition: all 0.2s;
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 .switch-players-button:hover {

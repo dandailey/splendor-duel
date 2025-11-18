@@ -4,6 +4,8 @@ import cardsCsv from "./splendor_cards.csv?raw";
 let allCards = [];
 let pyramidCards = { level1: [], level2: [], level3: [] };
 
+const GAME_TYPE_PREFIX = "splendor_duel_";
+
 // Game state structure
 const gameState = {
   decks: {
@@ -63,7 +65,11 @@ const gameState = {
       privileges: 0
     }
   },
-  currentPlayer: 1
+  currentPlayer: 1,
+  syncAssignments: {
+    player1Id: null,
+    player2Id: null
+  }
 };
 
 // Turn switching system (isolated for future changes)
@@ -73,6 +79,99 @@ const turnDisplayState = {
   activePlayerId: 'player1', // Player shown at bottom as "your hand"
   opponentPlayerId: 'player2' // Player shown at top as "opponent"
 };
+
+const initTurnHistoryState = () => ({
+  turns: [],
+  pendingTurn: null,
+  nextTurnId: 1
+});
+
+let turnHistoryState = initTurnHistoryState();
+
+const resetTurnHistoryState = () => {
+  turnHistoryState = initTurnHistoryState();
+  syncContext.lastSeenTurnId = null;
+};
+
+const getCurrentPlayerId = () => (gameState.currentPlayer === 1 ? 'player1' : 'player2');
+const getViewedPlayerId = () => {
+  if (turnDisplayState.activePlayerId) {
+    return turnDisplayState.activePlayerId;
+  }
+  return gameState.currentPlayer === 1 ? 'player1' : 'player2';
+};
+
+const getActionPlayerId = () => {
+  if (syncContext.enabled && syncContext.localPlayerId) {
+    return syncContext.localPlayerId;
+  }
+  return getCurrentPlayerId();
+};
+
+const ensurePendingTurn = () => {
+  const playerId = getCurrentPlayerId();
+  if (!turnHistoryState.pendingTurn || turnHistoryState.pendingTurn.playerId !== playerId) {
+    turnHistoryState.pendingTurn = {
+      id: `turn-${turnHistoryState.nextTurnId++}`,
+      playerId,
+      startedAt: Date.now(),
+      events: []
+    };
+  }
+  return turnHistoryState.pendingTurn;
+};
+
+const aggregateTokens = (tokenList = []) => {
+  const counts = {};
+  tokenList.forEach(color => {
+    if (!color) return;
+    counts[color] = (counts[color] || 0) + 1;
+  });
+  return Object.keys(counts).map(color => ({ color, count: counts[color] }));
+};
+
+const summarizeCard = (card) => ({
+  id: card.id,
+  level: card.level,
+  color: card.color,
+  points: card.points || 0,
+  crowns: card.crowns || 0,
+  ability: card.ability || null,
+  isDouble: !!card.isDouble,
+  costs: card.costs ? { ...card.costs } : {}
+});
+
+const summarizeSpend = (spend = {}) => Object.keys(spend)
+  .filter(color => spend[color] > 0)
+  .map(color => ({ color, count: spend[color] }));
+
+const logTurnEvent = (type, payload = {}) => {
+  const pending = ensurePendingTurn();
+  pending.events.push({
+    id: `${pending.id}-event-${pending.events.length + 1}`,
+    type,
+    timestamp: Date.now(),
+    ...payload
+  });
+  pending.updatedAt = Date.now();
+};
+
+const finalizePendingTurn = (status = 'completed') => {
+  const pending = turnHistoryState.pendingTurn;
+  if (!pending) return;
+  if (!pending.events.length) {
+    turnHistoryState.pendingTurn = null;
+    return;
+  }
+  pending.endedAt = Date.now();
+  pending.status = status;
+  pending.turnNumber = (turnHistoryState.turns?.length || 0) + 1;
+  turnHistoryState.turns.push(pending);
+  turnHistoryState.pendingTurn = null;
+};
+
+let turnDialogMode = null;
+let turnGuardCustomMessage = "";
 
 // Track previous crown counts to detect threshold crossings
 const previousCrownCounts = {
@@ -94,6 +193,284 @@ let repeatTurnActive = false;
 let tokensToDiscard = [];
 let tokenDiscardMode = false;
 let requiredDiscardCount = 0; // Number of tokens that must be discarded
+
+// Persistent client identifier (used to lock player slots in online games)
+const CLIENT_ID_STORAGE_KEY = "splendor_duel_client_id";
+
+const generateClientId = () => {
+  try {
+    if (crypto && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch (error) {
+    // Ignore and fall back
+  }
+  return `sd-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+};
+
+const getClientId = () => {
+  try {
+    const stored = window.localStorage.getItem(CLIENT_ID_STORAGE_KEY);
+    if (stored) return stored;
+
+    const newId = generateClientId();
+    window.localStorage.setItem(CLIENT_ID_STORAGE_KEY, newId);
+    return newId;
+  } catch (error) {
+    console.warn("Unable to access localStorage for client ID:", error);
+    return generateClientId();
+  }
+};
+
+const clientId = getClientId();
+console.log("Splendor Duel client ID:", clientId);
+
+// GameSync integration state
+const syncContext = {
+  enabled: false,
+  serviceAvailable: false,
+  sessionId: null,
+  version: null,
+  localPlayerId: null,
+  isHost: false,
+  pollTimerId: null,
+  syncStatus: 'offline', // 'offline', 'online', 'degraded'
+  lastSeenTurnId: null
+};
+
+// GameSync client abstraction
+class GameSyncClient {
+  constructor(baseUrl, gameType) {
+    this.baseUrl = baseUrl;
+    this.gameType = gameType;
+    this.sessionId = null;
+    this.version = null;
+    this.serviceAvailable = false;
+    this.pollTimerId = null;
+  }
+
+  async checkStatus() {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      const response = await fetch(`${this.baseUrl}?action=status`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data = await response.json();
+        this.serviceAvailable = data.status === 'operational';
+        return this.serviceAvailable;
+      }
+      
+      this.serviceAvailable = false;
+      return false;
+    } catch (error) {
+      this.serviceAvailable = false;
+      return false;
+    }
+  }
+
+  async createSession(stateBlob, meta = {}) {
+    const response = await fetch(`${this.baseUrl}?action=create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        game_type: this.gameType,
+        state_blob: stateBlob,
+        meta: meta
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw {
+        type: 'create_failed',
+        status: response.status,
+        message: error.error || `Failed to create session: ${response.status}`
+      };
+    }
+
+    const session = await response.json();
+    this.sessionId = session.session_id;
+    this.version = session.version;
+    return session;
+  }
+
+  async loadSession(sessionId) {
+    const url = new URL(this.baseUrl);
+    url.searchParams.set('action', 'load');
+    url.searchParams.set('session_id', sessionId);
+    url.searchParams.set('game_type', this.gameType);
+
+    const response = await fetch(url);
+
+    if (response.status === 404) {
+      throw {
+        type: 'not_found',
+        status: 404,
+        message: 'Session not found'
+      };
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw {
+        type: 'load_failed',
+        status: response.status,
+        message: error.error || `Failed to load session: ${response.status}`
+      };
+    }
+
+    const session = await response.json();
+    this.sessionId = session.session_id;
+    this.version = session.version;
+    return session;
+  }
+
+  async updateSession(stateBlob, maxRetries = 3, meta = null) {
+    if (!this.sessionId || this.version === null) {
+      throw {
+        type: 'no_session',
+        message: 'No active session'
+      };
+    }
+
+    let attempts = 0;
+    let currentVersion = this.version;
+
+    while (attempts < maxRetries) {
+      try {
+        const body = {
+          session_id: this.sessionId,
+          game_type: this.gameType,
+          state_blob: stateBlob,
+          version: currentVersion
+        };
+        
+        // Include meta if provided (GameSync API doesn't support meta in update, but we'll try)
+        // Actually, looking at the API, update doesn't support meta changes, so we'll skip this
+        // The meta update would need to happen via a separate mechanism or we accept the limitation
+        
+        const response = await fetch(`${this.baseUrl}?action=update`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        });
+
+        if (response.status === 409) {
+          const conflict = await response.json();
+          this.version = conflict.current.version;
+          currentVersion = conflict.current.version;
+          attempts++;
+
+          if (attempts >= maxRetries) {
+            throw {
+              type: 'version_conflict',
+              status: 409,
+              message: 'Version conflict: max retries reached',
+              current: conflict.current
+            };
+          }
+
+          continue;
+        }
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+          throw {
+            type: 'update_failed',
+            status: response.status,
+            message: error.error || `Failed to update session: ${response.status}`
+          };
+        }
+
+        const session = await response.json();
+        this.version = session.version;
+        return session;
+      } catch (error) {
+        if (error.type === 'version_conflict' || error.type === 'update_failed') {
+          throw error;
+        }
+        attempts++;
+        if (attempts >= maxRetries) {
+          throw {
+            type: 'network_error',
+            message: error.message || 'Network error during update'
+          };
+        }
+      }
+    }
+  }
+
+  startPolling(intervalMs, onUpdate) {
+    if (this.pollTimerId) {
+      this.stopPolling();
+    }
+
+    if (!this.sessionId) {
+      throw new Error('No active session for polling');
+    }
+
+    const poll = async () => {
+      try {
+      const previousVersion = this.version;
+        const session = await this.loadSession(this.sessionId);
+        
+      if (previousVersion === null || session.version > previousVersion) {
+        this.version = session.version;
+          if (onUpdate) {
+            onUpdate(session);
+          }
+        }
+      } catch (error) {
+        console.error('Poll error:', error);
+        if (onUpdate) {
+          onUpdate(null, error);
+        }
+      }
+    };
+
+    poll();
+    this.pollTimerId = setInterval(poll, intervalMs);
+  }
+
+  stopPolling() {
+    if (this.pollTimerId) {
+      clearInterval(this.pollTimerId);
+      this.pollTimerId = null;
+    }
+  }
+}
+
+// Detect if we're in dev mode (localhost or local IP)
+const isDevMode = () => {
+  const hostname = window.location.hostname;
+  return hostname === 'localhost' || 
+         hostname === '127.0.0.1' || 
+         hostname.startsWith('192.168.') ||
+         hostname.startsWith('10.') ||
+         hostname === 'gamesync' ||
+         window.location.port !== '';
+};
+
+// Initialize GameSync client with dev/prod detection
+const gameSyncBaseUrl = isDevMode() 
+  ? 'http://gamesync:8888/index.php'
+  : 'https://danieldailey.com/gamesync/index.php';
+
+const gameSyncClient = new GameSyncClient(
+  gameSyncBaseUrl,
+  'splendor_duel'
+);
 
 const parseCSV = (csvText) => {
   const lines = csvText.trim().split('\n');
@@ -287,6 +664,223 @@ const initializeGame = () => {
   // Initialize previous crown counts
   previousCrownCounts.player1 = 0;
   previousCrownCounts.player2 = 0;
+
+  // Reset sync assignments for a new local game
+  ensureSyncAssignmentsStructure();
+  gameState.syncAssignments.player1Id = null;
+  gameState.syncAssignments.player2Id = null;
+  
+  resetTurnHistoryState();
+};
+
+// GameSync state serialization
+const buildSyncState = () => {
+  return {
+    gameState: JSON.parse(JSON.stringify(gameState)),
+    turnDisplayState: JSON.parse(JSON.stringify(turnDisplayState)),
+    previousCrownCounts: JSON.parse(JSON.stringify(previousCrownCounts)),
+    turnHistory: JSON.parse(JSON.stringify(turnHistoryState))
+  };
+};
+
+const encodeSyncState = () => {
+  return JSON.stringify(buildSyncState());
+};
+
+const applySyncedState = (rawBlob) => {
+  try {
+    const parsed = JSON.parse(rawBlob);
+    
+    if (!parsed.gameState || !parsed.turnDisplayState || !parsed.previousCrownCounts) {
+      console.error('Invalid sync state: missing required fields');
+      return false;
+    }
+    
+    // Deep-mutate gameState
+    Object.keys(parsed.gameState).forEach(key => {
+      if (key === 'board') {
+        // Board is a 2D array, need to handle carefully
+        gameState.board = parsed.gameState.board.map(row => [...row]);
+      } else if (key === 'players') {
+        // Deep copy players
+        Object.keys(parsed.gameState.players).forEach(playerId => {
+          gameState.players[playerId] = JSON.parse(JSON.stringify(parsed.gameState.players[playerId]));
+        });
+      } else if (key === 'decks' || key === 'pyramid') {
+        // Deep copy nested arrays
+        Object.keys(parsed.gameState[key]).forEach(levelKey => {
+          gameState[key][levelKey] = JSON.parse(JSON.stringify(parsed.gameState[key][levelKey]));
+        });
+      } else if (Array.isArray(parsed.gameState[key])) {
+        gameState[key] = JSON.parse(JSON.stringify(parsed.gameState[key]));
+      } else if (typeof parsed.gameState[key] === 'object' && parsed.gameState[key] !== null) {
+        gameState[key] = JSON.parse(JSON.stringify(parsed.gameState[key]));
+      } else {
+        gameState[key] = parsed.gameState[key];
+      }
+    });
+    
+    // Mutate turnDisplayState - BUT preserve our local player view in online mode
+    // In online mode, we always want to see our own hand, not what the synced state says
+    if (!syncContext.enabled) {
+      // Local mode: use synced state
+      turnDisplayState.activePlayerId = parsed.turnDisplayState.activePlayerId;
+      turnDisplayState.opponentPlayerId = parsed.turnDisplayState.opponentPlayerId;
+    } else {
+      // Online mode: preserve our view (we see our hand, opponent sees theirs)
+      // Don't change turnDisplayState - it should already be set correctly
+      // The synced state's turnDisplayState is for the other player's view
+    }
+    
+    // Mutate previousCrownCounts
+    previousCrownCounts.player1 = parsed.previousCrownCounts.player1;
+    previousCrownCounts.player2 = parsed.previousCrownCounts.player2;
+    
+    if (parsed.turnHistory) {
+      const history = JSON.parse(JSON.stringify(parsed.turnHistory));
+      turnHistoryState = {
+        turns: Array.isArray(history.turns) ? history.turns : [],
+        pendingTurn: history.pendingTurn || null,
+        nextTurnId: history.nextTurnId || ((history.turns && history.turns.length) ? history.turns.length + 1 : 1)
+      };
+    } else {
+      resetTurnHistoryState();
+    }
+    
+    ensureSyncAssignmentsStructure();
+    
+    // Re-render the game
+    renderGame();
+    
+    return true;
+  } catch (error) {
+    console.error('Failed to apply synced state:', error);
+    return false;
+  }
+};
+
+const ensureSyncAssignmentsStructure = () => {
+  if (!gameState.syncAssignments) {
+    gameState.syncAssignments = { player1Id: null, player2Id: null };
+  } else {
+    if (typeof gameState.syncAssignments.player1Id === "undefined") {
+      gameState.syncAssignments.player1Id = null;
+    }
+    if (typeof gameState.syncAssignments.player2Id === "undefined") {
+      gameState.syncAssignments.player2Id = null;
+    }
+  }
+};
+
+const getLocalPlayerNumericId = () => {
+  if (!syncContext.localPlayerId) return null;
+  return syncContext.localPlayerId === "player1" ? 1 : 2;
+};
+
+const isOnlineOpponentTurn = () => syncContext.enabled && !isLocalPlayersTurn();
+
+const updateTurnGuardMessage = () => {
+  const guardEl = document.getElementById("turn-guard-message");
+  if (!guardEl) return;
+  
+  if (isOnlineOpponentTurn()) {
+    const message = turnGuardCustomMessage || "Opponent's turn – please wait.";
+    guardEl.textContent = message;
+    guardEl.classList.add("visible");
+  } else {
+    guardEl.textContent = "";
+    guardEl.classList.remove("visible");
+    turnGuardCustomMessage = "";
+  }
+};
+
+const showTurnBlockedNotice = (reason = "Please wait for your opponent to finish their turn.") => {
+  turnGuardCustomMessage = reason;
+  updateTurnGuardMessage();
+  console.warn(`[Sync Guard] ${reason}`);
+};
+
+const clearTurnGuardMessage = () => {
+  turnGuardCustomMessage = "";
+  updateTurnGuardMessage();
+};
+
+const ensureLocalTurn = (reason = "This action is only available on your turn.") => {
+  if (!isOnlineOpponentTurn()) {
+    return true;
+  }
+  showTurnBlockedNotice(reason);
+  return false;
+};
+
+const trimSessionId = (sessionId) => {
+  if (!sessionId) return "";
+  return sessionId.startsWith(GAME_TYPE_PREFIX)
+    ? sessionId.slice(GAME_TYPE_PREFIX.length)
+    : sessionId;
+};
+
+const normalizeSessionId = (sessionId) => {
+  if (!sessionId) return null;
+  return sessionId.startsWith(GAME_TYPE_PREFIX)
+    ? sessionId
+    : `${GAME_TYPE_PREFIX}${sessionId}`;
+};
+
+const buildShareUrl = (sessionId) => {
+  if (!sessionId) return "";
+  const normalized = normalizeSessionId(sessionId) || sessionId;
+  const trimmed = trimSessionId(normalized);
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  if (trimmed) {
+    url.searchParams.set("session", trimmed);
+  } else {
+    url.searchParams.set("session", normalized);
+  }
+  return url.toString();
+};
+
+const buildShareQrUrl = (shareUrl) => {
+  if (!shareUrl) return "";
+  const encoded = encodeURIComponent(shareUrl);
+  return `https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=${encoded}`;
+};
+
+const isLocalPlayersTurn = () => {
+  if (!syncContext.enabled || !syncContext.localPlayerId) {
+    return true;
+  }
+  const localNumeric = getLocalPlayerNumericId();
+  return gameState.currentPlayer === localNumeric;
+};
+
+const advanceToNextPlayerOnline = () => {
+  if (!syncContext.enabled || !syncContext.localPlayerId) return;
+  const nextPlayerNumeric = syncContext.localPlayerId === "player1" ? 2 : 1;
+  gameState.currentPlayer = nextPlayerNumeric;
+};
+
+const pushStateUpdate = async (reason = "state update") => {
+  if (!syncContext.enabled || !syncContext.sessionId) {
+    return null;
+  }
+  try {
+    const stateBlob = encodeSyncState();
+    if (!stateBlob || stateBlob.length < 50) {
+      console.error(`State blob too small (${stateBlob?.length}) for update (${reason}). Skipping write.`);
+      return null;
+    }
+    const session = await gameSyncClient.updateSession(stateBlob);
+    syncContext.version = session.version;
+    syncContext.syncStatus = "online";
+    console.log(`State pushed (${reason})`, session.version);
+    return session;
+  } catch (error) {
+    console.error(`Failed to push state (${reason})`, error);
+    throw error;
+  }
 };
 
 let cardIdCounter = 0;
@@ -1145,14 +1739,21 @@ const computePaymentPlanWithGold = (card, playerId, goldAssignments = []) => {
   });
 
   // Apply gold to cover assigned kinds
-  // Allow gold to be used for any color with a cost, but only use what's needed
-  // This lets users choose gold over tokens even when they have enough tokens
+  // Allow gold to be used for any color with a cost
+  // This lets users choose gold over tokens even when they have enough tokens/cards
   Object.keys(assigned).forEach(kind => {
     if (assigned[kind] > 0 && totalCosts[kind] > 0) {
-      // Use gold for this kind, but only up to what's actually needed
-      const goldToUse = Math.min(assigned[kind], needs[kind] || 0);
-      needs[kind] = Math.max(0, (needs[kind] || 0) - goldToUse);
-      spend.gold += goldToUse;
+      // Use gold for this kind - use the assigned amount, up to what's needed
+      // If need is already 0 (covered by cards), still allow using 1 gold if assigned
+      // (user explicitly chose to use gold)
+      const currentNeed = needs[kind] || 0;
+      const goldToUse = currentNeed > 0 
+        ? Math.min(assigned[kind], currentNeed)
+        : Math.min(assigned[kind], 1); // Allow using 1 gold even if need is 0
+      if (goldToUse > 0) {
+        needs[kind] = Math.max(0, currentNeed - goldToUse);
+        spend.gold += goldToUse;
+      }
     }
   });
 
@@ -1434,6 +2035,7 @@ const processCardAbilities = (card, playerId) => {
   
   // Check for repeat turn ability (again)
   if (card.ability === 'again') {
+    logTurnEvent('repeat_turn_awarded', { card: summarizeCard(card) });
     repeatTurnActive = true;
     // Show repeat turn modal
     showRepeatTurnModal();
@@ -1500,6 +2102,8 @@ const showRepeatTurnModal = () => {
   }
   
   dialog.style.display = 'flex';
+  
+  clearTurnSummarySection();
 };
 
 const closeRepeatTurnModal = () => {
@@ -1734,6 +2338,7 @@ const closeStealTokenModal = () => {
 };
 
 const confirmStealToken = (color) => {
+  if (!ensureLocalTurn("Token stealing abilities resolve on your turn.")) return;
   const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
   
@@ -1742,6 +2347,8 @@ const confirmStealToken = (color) => {
     gameState.players[otherPlayer].tokens[color]--;
     gameState.players[currentPlayer].tokens[color]++;
   }
+  
+  logTurnEvent('token_stolen', { color });
   
   closeStealTokenModal();
   renderGame();
@@ -1753,10 +2360,13 @@ const confirmStealToken = (color) => {
 };
 
 const finalizePurchaseWithSelection = () => {
+  if (!ensureLocalTurn("Purchasing cards is only allowed on your turn.")) return;
   if (!paymentState || !selectedCard) return;
   const { playerId } = paymentState;
   const plan = computePaymentPlanWithGold(selectedCard, playerId, paymentState.goldAssignments);
   if (!plan.valid) return;
+  const fromReservePurchase = paymentState && paymentState.context && paymentState.context.fromReserve;
+  const reserveIndex = fromReservePurchase && paymentState.context ? paymentState.context.reserveIndex : null;
   
   // Check if this is a wild card - if so, show placement modal WITHOUT deducting resources yet
   const isWild = selectedCard.color === 'wild';
@@ -1789,10 +2399,9 @@ const finalizePurchaseWithSelection = () => {
   });
   
   // Grant card: handle reserve vs pyramid source
-  if (paymentState && paymentState.context && paymentState.context.fromReserve) {
-    const rIndex = paymentState.context.reserveIndex;
-    if (typeof rIndex === 'number' && rIndex >= 0) {
-      const card = gameState.players[playerId].reserves.splice(rIndex, 1)[0];
+  if (fromReservePurchase) {
+    if (typeof reserveIndex === 'number' && reserveIndex >= 0) {
+      const card = gameState.players[playerId].reserves.splice(reserveIndex, 1)[0];
       if (card) player.cards.push(card);
     } else {
       // Fallback if index missing: just push selectedCard
@@ -1815,6 +2424,12 @@ const finalizePurchaseWithSelection = () => {
   
   // Process card abilities after acquisition
   const acquiredCard = player.cards[player.cards.length - 1];
+  logTurnEvent('card_purchased', {
+    card: summarizeCard(acquiredCard),
+    fromReserve: !!fromReservePurchase,
+    tokensSpent: summarizeSpend(plan.spend),
+    ability: acquiredCard.ability || null
+  });
   processCardAbilities(acquiredCard, playerId);
 };
 
@@ -2042,8 +2657,25 @@ const generateResourceSummary = () => {
 };
 
 const generateGameLayout = () => {
+  const currentSessionId = syncContext.sessionId;
+  const trimmedSessionId = trimSessionId(currentSessionId);
+  const shareUrl = buildShareUrl(currentSessionId);
+  const shareQrSrc = buildShareQrUrl(shareUrl);
+  const viewerPlayerId = getViewedPlayerId();
   return `
     <div class="game-container">
+      <!-- Sync Status Indicator and Settings -->
+      <div class="sync-controls-bar">
+        <div class="sync-status" id="sync-status">
+          <span class="sync-indicator" id="sync-indicator" title="Sync status"></span>
+          <span class="sync-mode" id="sync-mode">Local</span>
+          <span class="sync-session-id" id="sync-session-id" style="display: none;"></span>
+          <span class="sync-turn-indicator" id="sync-turn-indicator"></span>
+        </div>
+        <button class="settings-btn" id="settings-btn" title="Game settings" onclick="window.showSettings()">⚙</button>
+      </div>
+      <div class="sync-turn-warning" id="turn-guard-message" aria-live="polite"></div>
+      
       <!-- Top Bar: Token Board (left) and Opponent Stats (right) -->
       <div class="top-bar">
         <div class="token-board-container" id="token-board-top">
@@ -2127,6 +2759,9 @@ const generateGameLayout = () => {
                 <h3>Your turn has been completed</h3>
                 <p>Click below to switch players</p>
               </div>
+              <div class="turn-summary-container" id="turn-summary-container" style="display: none;">
+                <div class="turn-summary-list" id="turn-summary-list"></div>
+              </div>
               <button class="action-button switch-players-button" id="switch-players-btn">Switch Players</button>
             </div>
           </div>
@@ -2156,6 +2791,7 @@ const generateGameLayout = () => {
               </div>
             </div>
           </div>
+
           
           <div class="card-pyramid">
             <div class="pyramid-row">
@@ -2166,8 +2802,7 @@ const generateGameLayout = () => {
               </div>
               ${gameState.pyramid.level1.map((card, idx) => {
                 card._pyramidIndex = idx;
-                const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
-                const afford = getAffordability(card, currentPlayerId);
+                const afford = getAffordability(card, viewerPlayerId);
                 return renderCardV2(card, 'level-1-card', afford.affordable);
               }).join('')}
               <div class="card-spacer"></div>
@@ -2194,8 +2829,7 @@ const generateGameLayout = () => {
               </div>
               ${gameState.pyramid.level2.map((card, idx) => {
                 card._pyramidIndex = idx;
-                const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
-                const afford = getAffordability(card, currentPlayerId);
+                const afford = getAffordability(card, viewerPlayerId);
                 return renderCardV2(card, 'level-2-card', afford.affordable);
               }).join('')}
             </div>
@@ -2208,8 +2842,7 @@ const generateGameLayout = () => {
               </div>
               ${gameState.pyramid.level3.map((card, idx) => {
                 card._pyramidIndex = idx;
-                const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
-                const afford = getAffordability(card, currentPlayerId);
+                const afford = getAffordability(card, viewerPlayerId);
                 return renderCardV2(card, 'level-3-card', afford.affordable);
               }).join('')}
               <div class="card-spacer"></div>
@@ -2245,6 +2878,77 @@ const generateGameLayout = () => {
       <!-- Global Hand Display (always at bottom) -->
       <div class="global-hand-display" id="player-hand">
         ${renderPlayerHand(turnDisplayState.activePlayerId)}
+      </div>
+
+      <!-- Mode Selection Modal -->
+      <div class="modal-overlay card-modal-overlay" id="mode-selection-modal" style="display: none;">
+        <div class="modal-content turn-completion-content">
+          <div class="turn-completion-message">
+            <h3>Choose Game Mode</h3>
+            <p>How would you like to play?</p>
+          </div>
+          <div class="mode-selection-buttons">
+            <button class="action-button" onclick="window.selectLocalMode()">Local Hotseat</button>
+            <button class="action-button" onclick="window.hostOnlineGame()">Online – Host New Game</button>
+            <button class="action-button" onclick="window.showJoinDialog()">Online – Join Game</button>
+          </div>
+          <div style="margin-top: 15px; text-align: center;">
+            <button class="btn-cancel" onclick="window.closeModeSelection()" style="font-size: 12px; padding: 6px 12px;">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Join Game Modal -->
+      <div class="modal-overlay card-modal-overlay" id="join-game-modal" style="display: none;">
+        <div class="modal-content turn-completion-content">
+          <div class="turn-completion-message">
+            <h3>Join Online Game</h3>
+            <p>Enter the session ID to join:</p>
+            <input type="text" id="join-session-input" placeholder="Session ID" style="width: 100%; padding: 8px; margin: 10px 0; font-size: 14px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px;">
+            <p style="font-size: 12px; color: #666; margin-top: 5px;">Warning: This will replace your current game state.</p>
+          </div>
+          <div class="mode-selection-buttons">
+            <button class="action-button" onclick="window.confirmJoinGame()">Join</button>
+          </div>
+          <div style="margin-top: 10px; text-align: center;">
+            <button class="btn-cancel" onclick="window.closeJoinDialog()" style="font-size: 12px; padding: 6px 12px;">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Modal -->
+      <div class="modal-overlay card-modal-overlay" id="settings-modal" style="display: none;">
+        <div class="modal-content turn-completion-content">
+          <div class="turn-completion-message">
+            <h3>Game Settings</h3>
+            <div id="settings-content">
+              <!-- Content populated dynamically -->
+            </div>
+          </div>
+          <div style="margin-top: 15px; text-align: center;">
+            <button class="btn-cancel" onclick="window.closeSettings()" style="font-size: 12px; padding: 6px 12px;">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Session Info Modal (for host) -->
+      <div class="modal-overlay card-modal-overlay" id="session-info-modal" style="display: none;">
+        <div class="modal-content turn-completion-content">
+          <div class="turn-completion-message">
+            <h3>Game Session Created</h3>
+            <p>Share this session ID with your opponent:</p>
+            <div class="session-id-display" id="session-id-display">${trimmedSessionId || ''}</div>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">Or share this link:</p>
+            <div class="session-link-display" id="session-link-display">${shareUrl || ''}</div>
+            <div class="qr-wrapper" id="session-qr-wrapper">
+              <img id="session-qr-image" src="${shareQrSrc || ''}" alt="Session QR code" style="${shareQrSrc ? '' : 'display:none;'}" />
+            </div>
+            <button class="action-button" onclick="window.copySessionInfo()" style="margin-top: 10px; width: 100%;">Copy Link</button>
+          </div>
+          <div style="margin-top: 15px; text-align: center;">
+            <button class="btn-cancel" onclick="window.closeSessionInfo()" style="font-size: 12px; padding: 6px 12px;">Start Game</button>
+          </div>
+        </div>
       </div>
   </div>
   `;
@@ -2372,8 +3076,10 @@ const closeOtherPopovers = (exceptId) => {
 const populateReservedModal = () => {
   const modalBody = document.querySelector('#reserved-modal .modal-body');
   if (!modalBody) return;
-  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
-  const reserves = gameState.players[currentPlayerId].reserves || [];
+  const reservedViewerId = (syncContext.enabled && syncContext.localPlayerId)
+    ? syncContext.localPlayerId
+    : getViewedPlayerId();
+  const reserves = gameState.players[reservedViewerId].reserves || [];
 
   if (reserves.length === 0) {
     modalBody.innerHTML = `
@@ -2386,9 +3092,9 @@ const populateReservedModal = () => {
   }
 
   const cardsHtml = reserves.map((card, idx) => {
-    const afford = getAffordability(card, currentPlayerId);
+    const afford = getAffordability(card, reservedViewerId);
     const isWild = card.color === 'wild';
-    const canPlace = isWild ? canPlaceWildCard(currentPlayerId) : true;
+    const canPlace = isWild ? canPlaceWildCard(reservedViewerId) : true;
     const canBuy = afford.affordable && canPlace;
     const cardHtml = renderCardV2(card, `level-${card.level}-card`);
     return `
@@ -2418,7 +3124,7 @@ const populateReservedModal = () => {
       const idx = parseInt(btn.getAttribute('data-reserve-index'), 10);
       const card = reserves[idx];
       if (!card) return;
-      purchaseContext = { source: 'reserve', reserveIndex: idx, playerId: currentPlayerId };
+      purchaseContext = { source: 'reserve', reserveIndex: idx, playerId: reservedViewerId };
       // Close the reserved modal first to prevent overlapping overlays
       closePopover('reserved-modal');
       openPopover('card-detail-popover', card, null);
@@ -2770,6 +3476,7 @@ const populateCardDetailPopover = (card) => {
 };
 
 const buySelectedCard = () => {
+  if (!ensureLocalTurn("Buying cards is only allowed on your turn.")) return;
   if (!selectedCard) return;
   
   const level = selectedCard.level;
@@ -2796,12 +3503,14 @@ const buySelectedCard = () => {
 };
 
 const reserveSelectedCard = () => {
+  if (!ensureLocalTurn("Reserving cards is only allowed on your turn.")) return;
   if (!selectedCard) return;
-  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
-  const player = gameState.players[currentPlayerId];
+  const actionPlayerId = getActionPlayerId();
+  const player = gameState.players[actionPlayerId];
   // Guard: max 3 reserves
   if (player.reserves.length >= 3) return;
 
+  const reservedCardSnapshot = selectedCard ? { ...selectedCard } : null;
   const level = selectedCard.level;
   const levelKey = `level${level}`;
   const index = selectedCard._pyramidIndex;
@@ -2832,6 +3541,10 @@ const reserveSelectedCard = () => {
 
   // Close popover before re-render
   closePopover('card-detail-popover');
+  logTurnEvent('card_reserved', {
+    card: reservedCardSnapshot ? summarizeCard(reservedCardSnapshot) : null,
+    goldAwarded: goldCells.length > 0
+  });
   // Re-render the game
   renderGame();
   checkAndShowRoyalCardSelection();
@@ -2846,6 +3559,7 @@ let boardWasRefilled = false;
 
 // Toggle token selection
 const toggleTokenSelection = (row, col) => {
+  if (!ensureLocalTurn("Token selection is only available on your turn.")) return;
   const token = gameState.board[row][col];
   
   // Gold tokens can never be selected
@@ -3171,6 +3885,7 @@ const attachTokenBoardListeners = () => {
 
 // Confirm token selection
 const confirmTokenSelection = () => {
+  if (!ensureLocalTurn("Token selection is only available on your turn.")) return;
   // Don't allow normal token selection if in scroll mode
   if (scrollSelectionMode) {
     return;
@@ -3186,6 +3901,9 @@ const confirmTokenSelection = () => {
   // Add tokens to player's hand
   const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
+  const selectedColors = selectedTokens.map(({ token }) => token);
+  let scrollAwardedTo = null;
+  const scrollReasons = [];
   
   // Track token colors for scroll checks
   let pearlCount = 0;
@@ -3205,12 +3923,16 @@ const confirmTokenSelection = () => {
     const tokenTypes = selectedTokens.map(({ token }) => token).filter(t => t !== 'gold');
     if (tokenTypes.length === 3 && tokenTypes.every(t => t === tokenTypes[0])) {
       awardScroll(otherPlayer);
+      scrollAwardedTo = otherPlayer;
+      scrollReasons.push('three_match');
     }
   }
   
   // 2. Two pearls
   if (pearlCount === 2) {
     awardScroll(otherPlayer);
+    scrollAwardedTo = otherPlayer;
+    scrollReasons.push('two_pearls');
   }
   
   // Remove tokens from board
@@ -3221,6 +3943,16 @@ const confirmTokenSelection = () => {
   // Clear selection
   selectedTokens = [];
   selectionError = null;
+  
+  const tokensSummary = aggregateTokens(selectedColors);
+  if (tokensSummary.length > 0) {
+    logTurnEvent(bonusTokenMode ? 'bonus_token_collected' : 'tokens_taken', {
+      tokens: tokensSummary,
+      scrollAwardedTo,
+      scrollReasons,
+      bonusColor: bonusTokenMode ? bonusTokenRequiredColor : null
+    });
+  }
   
   // Close modal before re-rendering
   closePopover('token-selection-modal');
@@ -3303,6 +4035,7 @@ const shuffleArray = (array) => {
 
 // Refill board from bag in spiral order
 const refillBoard = () => {
+  if (!ensureLocalTurn("Refilling the board is only possible on your turn.")) return;
   if (isBagEmpty()) {
     return;
   }
@@ -3333,6 +4066,10 @@ const refillBoard = () => {
   const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
   awardScroll(otherPlayer);
+  logTurnEvent('board_refilled', {
+    tokensPlaced: tokenIndex,
+    scrollAwardedTo: otherPlayer
+  });
   
   // Mark that board was refilled (disables scroll usage)
   boardWasRefilled = true;
@@ -3425,6 +4162,7 @@ const renderScrollUsageSection = () => {
 
 // Enter scroll selection mode
 const enterScrollSelectionMode = () => {
+  if (!ensureLocalTurn("Scrolls can only be used during your turn.")) return;
   scrollSelectionMode = true;
   scrollSelectedToken = null;
   selectedTokens = [];
@@ -3445,6 +4183,7 @@ const cancelScrollSelection = () => {
 
 // Confirm scroll selection
 const confirmScrollSelection = () => {
+  if (!ensureLocalTurn("Scrolls can only be used during your turn.")) return;
   if (!scrollSelectedToken) return;
   
   const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
@@ -3458,6 +4197,9 @@ const confirmScrollSelection = () => {
   
   // Reduce scroll count
   player.privileges = Math.max(0, (player.privileges || 0) - 1);
+  logTurnEvent('scroll_token', {
+    token: scrollSelectedToken.token
+  });
   
   // Reset scroll selection state
   scrollSelectedToken = null;
@@ -3497,6 +4239,7 @@ const updateRefillButtonState = () => {
 
 // Royal card selection functions
 const selectRoyalCard = (cardId) => {
+  if (!ensureLocalTurn("Only the active player can claim a royal card.")) return;
   if (!royalCardSelectionMode) return;
   
   const card = gameState.royalCards.find(c => c.id === cardId && !c.taken);
@@ -3517,8 +4260,8 @@ const selectRoyalCard = (cardId) => {
 };
 
 const confirmRoyalCardSelection = () => {
-  if (!royalCardSelectionMode || !selectedRoyalCard) return;
-  
+  if (!ensureLocalTurn("Only the active player can confirm a royal card.") || !royalCardSelectionMode || !selectedRoyalCard) return;
+
   const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const player = gameState.players[currentPlayerId];
   
@@ -3540,6 +4283,9 @@ const confirmRoyalCardSelection = () => {
   
   // Mark card as taken
   selectedRoyalCard.taken = true;
+  logTurnEvent('royal_acquired', {
+    card: summarizeCard(royalCard)
+  });
   
   // Reset selection state
   selectedRoyalCard = null;
@@ -3631,19 +4377,59 @@ const checkAndShowRoyalCardSelection = () => {
   } else {
     // Update previous count and show normal turn completion
     previousCrownCounts[currentPlayerId] = currentCrowns;
-    showTurnCompletionDialog();
+    const dialogMode = syncContext.enabled ? 'online_end' : 'local_end';
+    showTurnCompletionDialog(dialogMode);
   }
 };
 
-const showTurnCompletionDialog = () => {
-  // Skip turn completion dialog if repeat turn is active
-  if (repeatTurnActive) {
+const showTurnCompletionDialog = (mode = (syncContext.enabled ? 'online_end' : 'local_end')) => {
+  // Skip turn completion dialog if repeat turn is active (unless we're alerting at turn start)
+  if (mode !== 'online_start' && repeatTurnActive) {
     repeatTurnActive = false; // Reset for next turn
     return;
   }
   
+  if (mode === 'online_start') {
+    clearTurnGuardMessage();
+  }
+  
+  turnDialogMode = mode;
+  
   const dialog = document.getElementById('turn-completion-dialog');
   if (!dialog) return;
+  
+  // Update dialog text based on mode
+  const messageEl = dialog.querySelector('.turn-completion-message');
+  const buttonEl = dialog.querySelector('#switch-players-btn');
+  
+  if (messageEl) {
+    if (mode === 'online_end') {
+      messageEl.querySelector('h3').textContent = 'Your turn has been completed';
+      messageEl.querySelector('p').textContent = 'Waiting for your opponent...';
+    } else if (mode === 'online_start') {
+      messageEl.querySelector('h3').textContent = "It's your turn";
+      messageEl.querySelector('p').textContent = 'Your opponent did the following:';
+    } else {
+      messageEl.querySelector('h3').textContent = 'Your turn has been completed';
+      messageEl.querySelector('p').textContent = 'Click below to switch players';
+    }
+  }
+  
+  if (buttonEl) {
+    if (mode === 'online_end') {
+      buttonEl.textContent = 'End Turn';
+    } else if (mode === 'online_start') {
+      buttonEl.textContent = 'Start Turn';
+    } else {
+      buttonEl.textContent = 'Switch Players';
+    }
+  }
+
+  if (mode === 'online_start') {
+    updateTurnSummarySection();
+  } else {
+    clearTurnSummarySection();
+  }
   
   // Add class to game container to block interactions
   const gameContainer = document.querySelector('.game-container');
@@ -3654,11 +4440,46 @@ const showTurnCompletionDialog = () => {
   dialog.style.display = 'flex';
 };
 
+const showWaitingForOpponent = () => {
+  // This will be handled by polling - when opponent makes a move, we'll update the state
+  // For now, just ensure the view stays on our player
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  if (currentPlayerId !== syncContext.localPlayerId) {
+    // It's now the opponent's turn - ensure we're showing our hand
+    turnDisplayState.activePlayerId = syncContext.localPlayerId;
+    turnDisplayState.opponentPlayerId = syncContext.localPlayerId === 'player1' ? 'player2' : 'player1';
+    renderGame();
+  }
+  updateSyncUI();
+};
+
+const handleTurnCompletionAction = () => {
+  const mode = turnDialogMode || (syncContext.enabled ? 'online_end' : 'local_end');
+  if (mode === 'online_end') {
+    finalizePendingTurn();
+    advanceToNextPlayerOnline();
+    syncAfterTurn();
+    closeTurnCompletionDialog();
+    showWaitingForOpponent();
+  } else if (mode === 'online_start') {
+    markOpponentTurnsAsSeen();
+    closeTurnCompletionDialog();
+    clearTurnSummarySection();
+    updateSyncUI();
+  } else {
+    finalizePendingTurn();
+    syncAfterTurn();
+    switchPlayers();
+    closeTurnCompletionDialog();
+  }
+};
+
 const closeTurnCompletionDialog = () => {
   const dialog = document.getElementById('turn-completion-dialog');
   if (dialog) {
     dialog.style.display = 'none';
   }
+  turnDialogMode = null;
   
   // Remove blocking class from game container
   const gameContainer = document.querySelector('.game-container');
@@ -3743,6 +4564,7 @@ const showTokenDiscardModal = () => {
 
 // Toggle token selection for discarding
 const toggleTokenDiscard = (tokenId, color) => {
+  if (!ensureLocalTurn("Only the active player can discard tokens.")) return;
   if (!tokenDiscardMode) return;
   
   const index = tokensToDiscard.findIndex(t => t.id === tokenId);
@@ -3777,6 +4599,7 @@ const updateDiscardConfirmButton = () => {
 
 // Confirm token discard and return tokens to bag
 const confirmTokenDiscard = () => {
+  if (!ensureLocalTurn("Only the active player can discard tokens.")) return;
   // Validate selection
   if (tokensToDiscard.length !== requiredDiscardCount) {
     return;
@@ -3792,6 +4615,9 @@ const confirmTokenDiscard = () => {
       player.tokens[color]--;
       gameState.bag[color] = (gameState.bag[color] || 0) + 1;
     }
+  });
+  logTurnEvent('tokens_discarded', {
+    tokens: aggregateTokens(tokensToDiscard.map(t => t.color))
   });
   
   // Clear discard state
@@ -3888,7 +4714,7 @@ const switchPlayers = () => {
     }
     
     // Update pyramid card highlighting for the new current player
-    const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+    const viewedPlayerId = getViewedPlayerId();
     const pyramidContainer = document.querySelector('.card-pyramid');
     if (pyramidContainer) {
       // Update all pyramid cards by level
@@ -3910,7 +4736,7 @@ const switchPlayers = () => {
           const cardIndex = parseInt(cardElement.getAttribute('data-card-index'), 10);
           if (!isNaN(cardIndex) && cardIndex < cards.length) {
             const card = cards[cardIndex];
-            const afford = getAffordability(card, currentPlayerId);
+            const afford = getAffordability(card, viewedPlayerId);
             if (afford.affordable) {
               cardElement.classList.add('affordable');
             } else {
@@ -3992,19 +4818,826 @@ const renderGame = () => {
       if (switchBtn._handlerAttached) {
         switchBtn.removeEventListener('click', switchBtn._clickHandler);
       }
-      switchBtn._clickHandler = () => {
-        switchPlayers();
-        closeTurnCompletionDialog();
-      };
+      switchBtn._clickHandler = handleTurnCompletionAction;
       switchBtn.addEventListener('click', switchBtn._clickHandler);
       switchBtn._handlerAttached = true;
     }
+    // Update sync UI after render
+    updateSyncUI();
   }, 10);
 };
 
+// Helper function to start polling
+let consecutivePollFailures = 0;
+const MAX_CONSECUTIVE_FAILURES = 5;
+
+const startPolling = () => {
+  if (!syncContext.enabled || !syncContext.sessionId) {
+    return;
+  }
+  
+  consecutivePollFailures = 0;
+  
+  gameSyncClient.startPolling(2000, (session, error) => {
+    if (error) {
+      console.error('Poll error:', error);
+      
+      // If session not found, stop polling
+      if (error.type === 'not_found' || error.status === 404) {
+        console.warn('Session not found, stopping polling');
+        stopPolling();
+        syncContext.enabled = false;
+        syncContext.syncStatus = 'offline';
+        updateSyncUI();
+        return;
+      }
+      
+      consecutivePollFailures++;
+      
+      // After too many failures, mark as degraded but keep trying
+      if (consecutivePollFailures >= MAX_CONSECUTIVE_FAILURES) {
+        syncContext.syncStatus = 'degraded';
+        updateSyncUI();
+      }
+      return;
+    }
+    
+    // Reset failure count on success
+    consecutivePollFailures = 0;
+    
+    if (session && session.version > syncContext.version) {
+      // Apply the update - opponent has made a move
+      // IMPORTANT: applySyncedState will call renderGame(), which might reset turnDisplayState
+      // So we need to preserve our view settings AFTER applying state
+      const preservedLocalPlayerId = syncContext.localPlayerId;
+      const wasLocalTurn = isLocalPlayersTurn();
+      
+      applySyncedState(session.state_blob);
+      
+      // CRITICAL: Restore our view after state is applied
+      // We always want to see our own hand at the bottom
+      turnDisplayState.activePlayerId = preservedLocalPlayerId;
+      turnDisplayState.opponentPlayerId = preservedLocalPlayerId === 'player1' ? 'player2' : 'player1';
+      const nowLocalTurn = isLocalPlayersTurn();
+      
+      syncContext.version = session.version;
+      syncContext.syncStatus = 'online';
+      
+      // Close turn completion dialog if it's open (opponent's turn is now active)
+      closeTurnCompletionDialog();
+      
+      // Re-render to ensure view is correct
+      renderGame();
+      updateSyncUI();
+      
+      if (!wasLocalTurn && nowLocalTurn) {
+        showTurnCompletionDialog('online_start');
+      }
+    } else if (session) {
+      // Session loaded but version hasn't changed - still mark as online
+      syncContext.syncStatus = 'online';
+      updateSyncUI();
+    }
+  });
+  
+  syncContext.pollTimerId = gameSyncClient.pollTimerId;
+};
+
+// Helper function to stop polling
+const stopPolling = () => {
+  gameSyncClient.stopPolling();
+  syncContext.pollTimerId = null;
+};
+
+// Sync after turn completion
+const syncAfterTurn = async () => {
+  if (!syncContext.enabled) {
+    // Local mode guard: only allow the active player to end their turn
+    const currentPlayerId = gameState.currentPlayer === 1 ? "player1" : "player2";
+    if (currentPlayerId !== turnDisplayState.activePlayerId) {
+      return;
+    }
+  }
+  
+  try {
+    console.log('Syncing turn - current player:', gameState.currentPlayer, 'local player:', syncContext.localPlayerId, 'version:', syncContext.version);
+    const session = await pushStateUpdate('turn complete');
+    if (session) {
+      updateSyncUI();
+      console.log('Turn synced successfully, new version:', syncContext.version);
+    }
+  } catch (error) {
+    console.error('Failed to sync after turn:', error);
+    
+    if (error.type === 'version_conflict') {
+      // Handle version conflict by applying the current state
+      if (error.current) {
+        applySyncedState(error.current.state_blob);
+        syncContext.version = error.current.version;
+        syncContext.syncStatus = 'online';
+        updateSyncUI();
+        // Show a brief message
+        console.warn('Version conflict resolved - remote state applied');
+      }
+    } else {
+      // Network error or other issue - mark as degraded but don't block gameplay
+      syncContext.syncStatus = 'degraded';
+      updateSyncUI();
+      // Don't throw - allow game to continue
+    }
+  }
+};
+
+// Helper function to update sync UI
+const updateSyncUI = () => {
+  const indicator = document.getElementById("sync-indicator");
+  const mode = document.getElementById("sync-mode");
+  const sessionIdEl = document.getElementById("sync-session-id");
+  const turnIndicator = document.getElementById("sync-turn-indicator");
+  
+  if (!indicator || !mode) return;
+  
+  // Update indicator color
+  if (syncContext.syncStatus === "online") {
+    indicator.style.backgroundColor = "#4caf50";
+    indicator.title = "Online - Synced";
+  } else if (syncContext.syncStatus === "degraded") {
+    indicator.style.backgroundColor = "#ff9800";
+    indicator.title = "Degraded - Connection issues";
+  } else {
+    indicator.style.backgroundColor = "#9e9e9e";
+    indicator.title = "Offline - Local mode";
+  }
+  
+  // Update mode text & session ID
+  if (syncContext.enabled) {
+    const playerLabel = syncContext.localPlayerId
+      ? ` (${syncContext.localPlayerId === "player1" ? "P1" : "P2"})`
+      : "";
+    mode.textContent = `Online${playerLabel}`;
+    if (sessionIdEl && syncContext.sessionId) {
+      sessionIdEl.textContent = `Session: ${trimSessionId(syncContext.sessionId)}`;
+      sessionIdEl.style.display = "inline";
+    }
+  } else {
+    mode.textContent = "Local";
+    if (sessionIdEl) {
+      sessionIdEl.style.display = "none";
+    }
+  }
+  
+  // Turn indicator
+  if (turnIndicator) {
+    turnIndicator.classList.remove("active", "waiting");
+    if (!syncContext.enabled || !syncContext.localPlayerId) {
+      turnIndicator.textContent = "";
+    } else if (isLocalPlayersTurn()) {
+      turnIndicator.textContent = "Your turn";
+      turnIndicator.classList.add("active");
+    } else {
+      turnIndicator.textContent = "Waiting on opponent";
+      turnIndicator.classList.add("waiting");
+    }
+  }
+  
+  updateTurnGuardMessage();
+};
+
+const getRecentOpponentTurns = () => {
+  if (!syncContext.localPlayerId) return [];
+  const sourceTurns = Array.isArray(turnHistoryState.turns) ? turnHistoryState.turns : [];
+  const recent = [];
+  for (let i = sourceTurns.length - 1; i >= 0; i--) {
+    const turn = sourceTurns[i];
+    if (!turn) continue;
+    if (turn.playerId === syncContext.localPlayerId) {
+      break;
+    }
+    recent.unshift(turn);
+  }
+  return recent;
+};
+
+const getLatestOpponentTurnId = () => {
+  const turns = getRecentOpponentTurns();
+  if (!turns.length) return null;
+  return turns[turns.length - 1].id;
+};
+
+const hasUnseenOpponentTurn = () => {
+  const latestId = getLatestOpponentTurnId();
+  return Boolean(latestId && latestId !== syncContext.lastSeenTurnId);
+};
+
+const markOpponentTurnsAsSeen = () => {
+  const latestId = getLatestOpponentTurnId();
+  if (latestId) {
+    syncContext.lastSeenTurnId = latestId;
+  }
+};
+
+const formatColorLabel = (color) => {
+  if (!color || color === 'none') return 'Neutral';
+  return color.charAt(0).toUpperCase() + color.slice(1);
+};
+
+const formatCardLabel = (card) => {
+  if (!card) return 'card';
+  const colorLabel = formatColorLabel(card.color);
+  const crowns = card.crowns ? `, ${card.crowns} crowns` : '';
+  const ability = card.ability ? `, ability: ${card.ability}` : '';
+  return `Lvl ${card.level} ${colorLabel} (${card.points || 0} pts${crowns}${ability})`;
+};
+
+const renderTokenIcon = (color, size = 18) => {
+  if (!color) return '';
+  if (color === 'gold') return generateGoldIcon(size);
+  if (color === 'pearl') return generatePearlIcon(size);
+  if (color === 'wild') return generateWildIconSvg(size);
+  return generateGemTokenIcon(color, size);
+};
+
+const renderTokenIcons = (tokens = []) => {
+  if (!tokens || !tokens.length) return '';
+  return `<span class="token-icon-row">${
+    tokens.map(token => `
+      <span class="token-icon-wrapper">
+        ${renderTokenIcon(token.color, 20)}
+        ${token.count > 1 ? `<span class="token-count">×${token.count}</span>` : ''}
+      </span>
+    `).join('')
+  }</span>`;
+};
+
+const renderTurnEventRow = (event) => {
+  const row = (label, content) => `
+    <div class="turn-event-row">
+      <span class="turn-event-label">${label}</span>
+      <span class="turn-event-content">${content}</span>
+    </div>
+  `;
+  switch (event.type) {
+    case 'tokens_taken':
+      return row('Tokens', `${renderTokenIcons(event.tokens) || 'Collected tokens'}${event.scrollReasons?.length ? `<span class="turn-event-note">Scroll awarded</span>` : ''}`);
+    case 'bonus_token_collected':
+      return row('Bonus', `${event.bonusColor ? `${formatColorLabel(event.bonusColor)} ` : ''}${renderTokenIcons(event.tokens)}`);
+    case 'board_refilled':
+      return row('Refill', `Filled ${event.tokensPlaced || 0} slots and granted opponent a scroll.`);
+    case 'card_reserved': {
+      const costTokens = event.card?.costs ? summarizeSpend(event.card.costs) : [];
+      const costHtml = costTokens.length ? `<span class="turn-event-costs">${renderTokenIcons(costTokens)}</span>` : '';
+      return row(
+        'Reserved',
+        `${formatCardLabel(event.card)}${event.goldAwarded ? '<span class="turn-event-note">+ gold</span>' : ''}${costHtml}`
+      );
+    }
+    case 'card_purchased': {
+      const spentIcons = event.tokensSpent && event.tokensSpent.length ? `<div>${renderTokenIcons(event.tokensSpent)}</div>` : '';
+      return row('Purchased', `${formatCardLabel(event.card)}${event.fromReserve ? ' (from reserve)' : ''}${spentIcons}`);
+    }
+    case 'scroll_token':
+      return row('Scroll', `Took a ${formatColorLabel(event.token)} token`);
+    case 'token_stolen':
+      return row('Steal', `Took a ${formatColorLabel(event.color)} token`);
+    case 'tokens_discarded':
+      return row('Discarded', renderTokenIcons(event.tokens) || 'Returned tokens to the bag');
+    case 'royal_acquired':
+      return row('Royal', `Claimed ${formatCardLabel(event.card)}`);
+    case 'repeat_turn_awarded':
+      return row('Repeat', `Extra turn granted by ${formatCardLabel(event.card)}`);
+    default:
+      return row('Event', event.type.replace(/_/g, ' '));
+  }
+};
+
+const renderTurnSummaryEntries = (turns) => {
+  if (!turns.length) {
+    return '<div class="turn-summary-entry"><div class="turn-event-row"><span class="turn-event-content">No recorded actions.</span></div></div>';
+  }
+  return turns.map(turn => {
+    const eventsHtml = (turn.events || []).map(renderTurnEventRow).join('') || '<div class="turn-event-row"><span class="turn-event-content">No logged actions.</span></div>';
+    const hasRepeat = (turn.events || []).some(evt => evt.type === 'repeat_turn_awarded');
+    return `
+      <div class="turn-summary-entry">
+        <div class="turn-summary-entry-header">
+          <span>Opponent Turn ${turn.turnNumber || ''}</span>
+          ${hasRepeat ? '<span class="turn-summary-badge">Repeat chain</span>' : ''}
+        </div>
+        <div class="turn-summary-events">
+          ${eventsHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+};
+
+const updateTurnSummarySection = () => {
+  const container = document.getElementById('turn-summary-container');
+  const listContainer = document.getElementById('turn-summary-list');
+  if (!container || !listContainer) return;
+  const turns = getRecentOpponentTurns();
+  const latestId = getLatestOpponentTurnId();
+  if (!turns.length || (latestId && latestId === syncContext.lastSeenTurnId)) {
+    container.style.display = 'none';
+    return;
+  }
+  listContainer.innerHTML = renderTurnSummaryEntries(turns);
+  container.style.display = 'flex';
+};
+
+const clearTurnSummarySection = () => {
+  const container = document.getElementById('turn-summary-container');
+  const listContainer = document.getElementById('turn-summary-list');
+  if (container) container.style.display = 'none';
+  if (listContainer) listContainer.innerHTML = '';
+};
+
+const maybeShowPendingTurnDialog = () => {
+  if (!syncContext.enabled || !syncContext.localPlayerId) return;
+  if (!isLocalPlayersTurn()) return;
+  if (!hasUnseenOpponentTurn()) return;
+  setTimeout(() => showTurnCompletionDialog('online_start'), 50);
+};
+
+// UI handler functions (exposed to window for onclick handlers)
+window.showModeSelection = () => {
+  if (!syncContext.serviceAvailable) return;
+  const modal = document.getElementById('mode-selection-modal');
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.style.pointerEvents = 'auto';
+    const gameContainer = document.querySelector('.game-container');
+    if (gameContainer) {
+      gameContainer.classList.add('dialog-blocking');
+    }
+  }
+};
+
+window.closeModeSelection = () => {
+  const modal = document.getElementById('mode-selection-modal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.style.pointerEvents = 'none';
+    const gameContainer = document.querySelector('.game-container');
+    if (gameContainer) {
+      gameContainer.classList.remove('dialog-blocking');
+    }
+  }
+};
+
+window.selectLocalMode = () => {
+  syncContext.enabled = false;
+  syncContext.localPlayerId = null;
+  updateSyncUI();
+  window.closeModeSelection();
+};
+
+window.hostOnlineGame = async () => {
+  try {
+    // Use the current game state (don't re-initialize - user may have already started playing)
+    // If game hasn't been initialized yet, initialize it now
+    if (allCards.length === 0) {
+      initializeGame();
+      renderGame();
+    }
+    
+    ensureSyncAssignmentsStructure();
+    gameState.syncAssignments.player1Id = clientId;
+    gameState.syncAssignments.player2Id = null;
+    
+    const stateBlob = encodeSyncState();
+    // Track player assignments in meta
+    const meta = {
+      player1_assigned: true,
+      player2_assigned: false
+    };
+    const session = await gameSyncClient.createSession(stateBlob, meta);
+    
+    syncContext.enabled = true;
+    syncContext.sessionId = session.session_id;
+    syncContext.version = session.version;
+    syncContext.localPlayerId = 'player1';
+    syncContext.isHost = true;
+    syncContext.syncStatus = 'online';
+    
+    // Set turn display to always show player1 as active
+    turnDisplayState.activePlayerId = 'player1';
+    turnDisplayState.opponentPlayerId = 'player2';
+    gameState.currentPlayer = 1;
+    
+    // Update URL to include session ID so refresh will reconnect
+    const url = new URL(window.location);
+    url.searchParams.set('session', trimSessionId(session.session_id));
+    url.searchParams.set('role', 'p1'); // Host is always p1
+    window.history.replaceState({}, '', url);
+    
+    startPolling();
+    updateSyncUI();
+    
+    // Show session info modal
+    const modal = document.getElementById('session-info-modal');
+    const sessionIdDisplay = document.getElementById('session-id-display');
+    const sessionLinkDisplay = document.getElementById('session-link-display');
+    
+    if (modal && sessionIdDisplay && sessionLinkDisplay) {
+      const trimmed = trimSessionId(session.session_id);
+      const joinUrl = buildShareUrl(session.session_id);
+      sessionIdDisplay.textContent = trimmed;
+      sessionLinkDisplay.textContent = joinUrl;
+      const qrImg = document.getElementById('session-qr-image');
+      if (qrImg && joinUrl) {
+        qrImg.src = buildShareQrUrl(joinUrl);
+        qrImg.style.display = '';
+      }
+      modal.style.display = 'flex';
+      modal.style.pointerEvents = 'auto';
+      const gameContainer = document.querySelector('.game-container');
+      if (gameContainer) {
+        gameContainer.classList.add('dialog-blocking');
+      }
+    }
+    
+    window.closeModeSelection();
+  } catch (error) {
+    console.error('Failed to host game:', error);
+    alert('Failed to create online session. Please try again.');
+  }
+};
+
+window.showJoinDialog = () => {
+  window.closeModeSelection();
+  const modal = document.getElementById('join-game-modal');
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.style.pointerEvents = 'auto';
+    const gameContainer = document.querySelector('.game-container');
+    if (gameContainer) {
+      gameContainer.classList.add('dialog-blocking');
+    }
+    const input = document.getElementById('join-session-input');
+    if (input) {
+      input.value = '';
+      setTimeout(() => input.focus(), 100);
+    }
+  }
+};
+
+window.closeJoinDialog = () => {
+  const modal = document.getElementById('join-game-modal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.style.pointerEvents = 'none';
+    const gameContainer = document.querySelector('.game-container');
+    if (gameContainer) {
+      gameContainer.classList.remove('dialog-blocking');
+    }
+  }
+};
+
+window.confirmJoinGame = async () => {
+  const input = document.getElementById('join-session-input');
+  if (!input || !input.value.trim()) {
+    alert('Please enter a session ID');
+    return;
+  }
+  
+  const rawId = input.value.trim();
+  const normalizedId = normalizeSessionId(rawId);
+  if (!normalizedId) {
+    alert('Please enter a valid session ID');
+    return;
+  }
+  
+  const joined = await joinSession(normalizedId, 'p2');
+  
+  if (joined) {
+    window.closeJoinDialog();
+    // Update URL to include session param (no role - we auto-assign)
+    const url = new URL(window.location);
+    url.searchParams.set('session', normalizedId);
+    url.searchParams.delete('role'); // Remove role param if present
+    window.history.replaceState({}, '', url);
+  } else {
+    alert('Failed to join session. Please check the session ID and try again.');
+  }
+};
+
+window.showSettings = () => {
+  const modal = document.getElementById('settings-modal');
+  const content = document.getElementById('settings-content');
+  
+  if (!modal || !content) return;
+  
+  const trimmedSessionId = trimSessionId(syncContext.sessionId);
+  const shareUrl = buildShareUrl(syncContext.sessionId);
+  const shareQrSrc = buildShareQrUrl(shareUrl);
+  
+  let html = '';
+  
+  if (syncContext.enabled && syncContext.sessionId) {
+    html += `
+      <div style="margin-bottom: 15px;">
+        <p><strong>Session ID:</strong></p>
+        <div class="session-id-display">${trimmedSessionId}</div>
+        <button class="action-button" onclick="window.copySessionId()" style="margin-top: 5px; font-size: 12px;">Copy Session ID</button>
+      </div>
+      <div style="margin-bottom: 15px;">
+        <p><strong>Share Link:</strong></p>
+        <div class="session-link-display" id="share-link-display">${shareUrl}</div>
+        <button class="action-button" onclick="window.copyShareLink()" style="margin-top: 5px; font-size: 12px;">Copy Link</button>
+        <div class="qr-wrapper">
+          <img id="settings-qr-image" src="${shareQrSrc || ''}" alt="Share QR code" style="${shareQrSrc ? '' : 'display:none;'}" />
+        </div>
+      </div>
+    `;
+  } else {
+    html += '<p>You are playing in local mode.</p>';
+    if (syncContext.serviceAvailable) {
+      html += '<button class="action-button" onclick="window.closeSettings(); window.showModeSelection();" style="margin-top: 10px;">Switch to Online Mode</button>';
+    } else {
+      html += '<p style="font-size: 12px; color: #666;">Online sync is not available.</p>';
+    }
+  }
+  
+  content.innerHTML = html;
+  modal.style.display = 'flex';
+  modal.style.pointerEvents = 'auto';
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.add('dialog-blocking');
+  }
+  
+  if (syncContext.enabled && syncContext.sessionId) {
+    const shareLinkDisplay = document.getElementById('share-link-display');
+    if (shareLinkDisplay) {
+      shareLinkDisplay.textContent = shareUrl;
+    }
+    const qrImg = document.getElementById('settings-qr-image');
+    if (qrImg && shareQrSrc) {
+      qrImg.src = shareQrSrc;
+      qrImg.style.display = '';
+    } else if (qrImg && !shareQrSrc) {
+      qrImg.style.display = 'none';
+    }
+  }
+};
+
+window.closeSettings = () => {
+  const modal = document.getElementById('settings-modal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.style.pointerEvents = 'none';
+    const gameContainer = document.querySelector('.game-container');
+    if (gameContainer) {
+      gameContainer.classList.remove('dialog-blocking');
+    }
+  }
+};
+
+window.copySessionId = () => {
+  if (syncContext.sessionId) {
+    const trimmed = trimSessionId(syncContext.sessionId);
+    navigator.clipboard.writeText(trimmed || syncContext.sessionId).then(() => {
+      alert('Session ID copied to clipboard!');
+    }).catch(() => {
+      alert('Failed to copy. Session ID: ' + (trimmed || syncContext.sessionId));
+    });
+  }
+};
+
+window.copyShareLink = () => {
+  const shareLinkDisplay = document.getElementById('share-link-display');
+  if (shareLinkDisplay && shareLinkDisplay.textContent) {
+    navigator.clipboard.writeText(shareLinkDisplay.textContent).then(() => {
+      alert('Link copied to clipboard!');
+    }).catch(() => {
+      alert('Failed to copy link.');
+    });
+  }
+};
+
+window.copySessionInfo = () => {
+  const sessionLinkDisplay = document.getElementById('session-link-display');
+  if (sessionLinkDisplay && sessionLinkDisplay.textContent) {
+    navigator.clipboard.writeText(sessionLinkDisplay.textContent).then(() => {
+      alert('Link copied to clipboard!');
+    }).catch(() => {
+      alert('Failed to copy link.');
+    });
+  }
+};
+
+window.closeSessionInfo = () => {
+  const modal = document.getElementById('session-info-modal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.style.pointerEvents = 'none';
+    const gameContainer = document.querySelector('.game-container');
+    if (gameContainer) {
+      gameContainer.classList.remove('dialog-blocking');
+    }
+  }
+};
+
+// Update sync indicator on render
+window.updateSyncIndicator = updateSyncUI;
+
+// Helper function to join an existing session
+const joinSession = async (sessionId, role = null) => {
+  try {
+    const session = await gameSyncClient.loadSession(sessionId);
+    
+    // Check if player2 is already assigned
+    const meta = session.meta || {};
+    if (meta.player2_assigned && role !== 'p1') {
+      throw {
+        type: 'player_conflict',
+        message: 'Player 2 is already assigned. Someone else is already playing as player 2.'
+      };
+    }
+    
+    // Determine which player to assign
+    // If role is 'p1', we're the host reconnecting (or explicitly switching devices)
+    // Otherwise, we're a new joiner and should be player2
+    let assignedPlayerId = role === 'p1' ? 'player1' : 'player2';
+    const isReconnectingHost = role === 'p1';
+    
+    console.log('Joining session as:', assignedPlayerId, 'Session meta:', meta, 'Reconnecting host:', isReconnectingHost);
+    
+    // Apply the synced state FIRST (this will set up the game board)
+    if (!applySyncedState(session.state_blob)) {
+      throw new Error('Failed to apply synced state');
+    }
+    
+    const authoritativeCurrentPlayer = gameState.currentPlayer;
+    
+    ensureSyncAssignmentsStructure();
+    const assignments = gameState.syncAssignments;
+    let assignmentUpdated = false;
+    
+    if (assignedPlayerId === 'player1') {
+      if (assignments.player1Id && assignments.player1Id !== clientId) {
+        throw {
+          type: 'player_conflict',
+          message: 'Player 1 is already assigned on another device.'
+        };
+      }
+      if (assignments.player1Id !== clientId) {
+        assignments.player1Id = clientId;
+        assignmentUpdated = true;
+      }
+    } else {
+      if (assignments.player2Id && assignments.player2Id !== clientId) {
+        throw {
+          type: 'player_conflict',
+          message: 'Player 2 is already assigned on another device.'
+        };
+      }
+      if (assignments.player2Id !== clientId) {
+        assignments.player2Id = clientId;
+        assignmentUpdated = true;
+      }
+    }
+    
+    // NOW set our player assignment and view
+    syncContext.enabled = true;
+    syncContext.sessionId = session.session_id;
+    syncContext.version = session.version;
+    syncContext.localPlayerId = assignedPlayerId;
+    syncContext.isHost = isReconnectingHost; // Host reconnecting, or new joiner
+    syncContext.syncStatus = 'online';
+    
+    // Update URL to ensure refresh works (if not already set)
+    const url = new URL(window.location);
+    if (!url.searchParams.has('session') || url.searchParams.get('session') !== session.session_id) {
+      url.searchParams.set('session', session.session_id);
+      if (isReconnectingHost) {
+        url.searchParams.set('role', 'p1');
+      } else {
+        url.searchParams.delete('role'); // Joiners don't need role param
+      }
+      window.history.replaceState({}, '', url);
+    }
+    
+    // CRITICAL: Set turn display to always show our player as active (bottom)
+    // This ensures we see our own hand, not the opponent's
+    turnDisplayState.activePlayerId = assignedPlayerId;
+    turnDisplayState.opponentPlayerId = assignedPlayerId === 'player1' ? 'player2' : 'player1';
+    
+    // Persist assignment if needed
+    if (assignmentUpdated) {
+      try {
+        gameState.currentPlayer = authoritativeCurrentPlayer;
+        await pushStateUpdate('player assignment');
+      } catch (error) {
+        console.warn('Failed to push assignment update:', error);
+      }
+    }
+    
+    // Start polling for updates
+    startPolling();
+    
+    updateSyncUI();
+    renderGame(); // Re-render to show correct player view
+    
+    console.log('Joined session as:', assignedPlayerId, 'View shows:', turnDisplayState.activePlayerId, 'Current player in game:', gameState.currentPlayer);
+    
+    maybeShowPendingTurnDialog();
+    return true;
+  } catch (error) {
+    console.error('Failed to join session:', error);
+    
+    // Handle specific error types
+    if (error.type === 'not_found') {
+      console.warn('Session not found:', sessionId);
+      alert('Session not found. Please check the session ID.');
+    } else if (error.type === 'load_failed') {
+      console.warn('Failed to load session:', error.message);
+      alert('Failed to load session. Please try again.');
+    } else if (error.type === 'player_conflict') {
+      alert(error.message);
+    }
+    
+    syncContext.enabled = false;
+    syncContext.syncStatus = 'offline';
+    updateSyncUI();
+    return false;
+  }
+};
+
 // Initialize the game
-const init = () => {
+const init = async () => {
+  // Parse URL parameters first
+  const urlParams = new URLSearchParams(window.location.search);
+  const sessionParamRaw = urlParams.get('session');
+  const normalizedSessionParam = normalizeSessionId(sessionParamRaw);
+  const roleParam = urlParams.get('role');
+  
+  // Check GameSync service availability
+  const serviceAvailable = await gameSyncClient.checkStatus();
+  syncContext.serviceAvailable = serviceAvailable;
+  syncContext.syncStatus = serviceAvailable ? 'online' : 'offline';
+  
+  // If session param exists and service is available, try to join/reconnect
+  if (normalizedSessionParam && serviceAvailable) {
+    // Determine role: if role param is p1, we're the host reconnecting
+    // Otherwise, we're a joiner (p2)
+    const role = roleParam === 'p1' ? 'p1' : null; // null = auto-assign p2
+    const joined = await joinSession(normalizedSessionParam, role);
+    if (joined) {
+      console.log('Joined/reconnected to session:', normalizedSessionParam, 'as', syncContext.localPlayerId);
+      const trimmed = trimSessionId(normalizedSessionParam);
+      const url = new URL(window.location);
+      if (trimmed) {
+        url.searchParams.set('session', trimmed);
+      } else {
+        url.searchParams.set('session', normalizedSessionParam);
+      }
+      if (role === 'p1') {
+        url.searchParams.set('role', 'p1');
+      } else {
+        url.searchParams.delete('role');
+      }
+      window.history.replaceState({}, '', url);
+      updateSyncUI();
+      // Don't initialize local game - we're using the synced state
+      console.log('Game state initialized from session:', {
+        totalCards: allCards.length,
+        pyramid: gameState.pyramid,
+        bag: gameState.bag,
+        boardTokens: gameState.board.flat().filter(t => t !== null).length,
+        royalCards: gameState.royalCards.length,
+        currentPlayer: gameState.currentPlayer,
+        localPlayer: syncContext.localPlayerId,
+        isHost: syncContext.isHost
+      });
+      renderGame();
+      return;
+    } else {
+      // Fall through to initialize local game
+      console.warn('Failed to join session, initializing local game');
+      // Remove session param from URL since it's invalid
+      const url = new URL(window.location);
+      url.searchParams.delete('session');
+      url.searchParams.delete('role');
+      window.history.replaceState({}, '', url);
+    }
+  }
+  
+  // Initialize local game (default behavior)
   initializeGame();
+  
+  // Update UI after initialization
+  updateSyncUI();
+  
+  // If service is available and no session param, show mode selection after a delay
+  if (serviceAvailable && !normalizedSessionParam) {
+    setTimeout(() => {
+      if (typeof window.showModeSelection === 'function') {
+        window.showModeSelection();
+      }
+    }, 500);
+  }
   
   console.log('Game state initialized:', {
     totalCards: allCards.length,
