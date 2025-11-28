@@ -193,6 +193,7 @@ let repeatTurnActive = false;
 let tokensToDiscard = [];
 let tokenDiscardMode = false;
 let requiredDiscardCount = 0; // Number of tokens that must be discarded
+let discardModalMinimized = false; // Whether discard modal is minimized
 
 // Persistent client identifier (used to lock player slots in online games)
 const CLIENT_ID_STORAGE_KEY = "splendor_duel_client_id";
@@ -1610,6 +1611,29 @@ const getPlayerCards = (playerId) => {
   return { cards, points, wildStacks };
 };
 
+// Get "misc" cards for a player (grey point-only cards and royal cards)
+const getPlayerMiscCards = (playerId) => {
+  const player = gameState.players[playerId];
+  const greyCards = [];
+  const royalCards = [];
+  
+  // Get grey point-only cards (color === 'none')
+  player.cards.forEach(card => {
+    if (card.color === 'none') {
+      greyCards.push(card);
+    }
+  });
+  
+  // Get royal cards - they're marked with id starting with 'royal-'
+  player.cards.forEach(card => {
+    if (card.id && card.id.startsWith('royal-')) {
+      royalCards.push(card);
+    }
+  });
+  
+  return { greyCards, royalCards };
+};
+
 // Calculate player victory stats
 const getPlayerVictoryStats = (playerId) => {
   const player = gameState.players[playerId];
@@ -2346,6 +2370,7 @@ const confirmStealToken = (color) => {
   const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
   
   // Transfer one token from opponent to player
+  // (Warning was already shown at card purchase time)
   if (gameState.players[otherPlayer].tokens[color] > 0) {
     gameState.players[otherPlayer].tokens[color]--;
     gameState.players[currentPlayer].tokens[color]++;
@@ -2364,6 +2389,32 @@ const confirmStealToken = (color) => {
 
 const finalizePurchaseWithSelection = () => {
   if (!ensureLocalTurn("Purchasing cards is only allowed on your turn.")) return;
+  if (!paymentState || !selectedCard) return;
+  const { playerId } = paymentState;
+  const plan = computePaymentPlanWithGold(selectedCard, playerId, paymentState.goldAssignments);
+  if (!plan.valid) return;
+  const fromReservePurchase = paymentState && paymentState.context && paymentState.context.fromReserve;
+  const reserveIndex = fromReservePurchase && paymentState.context ? paymentState.context.reserveIndex : null;
+  
+  // Check if this card has an ability that grants tokens (steal or bonus token)
+  // Warn before purchase so player can decide if they want the card
+  if (selectedCard.ability === 'steal' || selectedCard.ability === 'token') {
+    const tokenCheck = willExceedTokenLimit(playerId, 1);
+    if (tokenCheck.willExceed) {
+      const abilityDesc = selectedCard.ability === 'steal' ? 'stealing a token' : 'taking a bonus token';
+      const confirmMsg = `This card's ability (${abilityDesc}) will give you ${tokenCheck.after} tokens (limit is 10). You'll need to discard ${tokenCheck.excessCount} token${tokenCheck.excessCount > 1 ? 's' : ''} after using the ability.<br><br>Purchase this card?`;
+      showConfirmationModal(confirmMsg, () => {
+        proceedWithPurchase();
+      });
+      return;
+    }
+  }
+  
+  // No warning needed, proceed directly
+  proceedWithPurchase();
+};
+
+const proceedWithPurchase = () => {
   if (!paymentState || !selectedCard) return;
   const { playerId } = paymentState;
   const plan = computePaymentPlanWithGold(selectedCard, playerId, paymentState.goldAssignments);
@@ -2503,12 +2554,69 @@ const renderPlayerColorCard = (color, cardCount, tokenCount, points, hasWild = f
   `;
 };
 
+// Render inline misc cards fan (compact version for header strip)
+const renderMiscCardsFanInline = (playerId) => {
+  const { greyCards, royalCards } = getPlayerMiscCards(playerId);
+  const allMiscCards = [...greyCards, ...royalCards];
+  
+  // Always render the container for consistent centering
+  if (allMiscCards.length === 0) {
+    return '<div class="misc-cards-fan-inline"></div>';
+  }
+  
+  // Calculate width needed for the fan
+  const fanWidth = 18 + (allMiscCards.length - 1) * 10; // base card width + offsets
+  
+  let html = '<div class="misc-cards-fan-inline"><div class="misc-cards-fan-inner" style="width: ' + fanWidth + 'px;">';
+  
+  allMiscCards.forEach((card, index) => {
+    const offsetX = index * 10; // Tighter fan offset
+    const isRoyal = card.id && card.id.startsWith('royal-');
+    const bgColor = isRoyal ? 'linear-gradient(135deg, #d4af37 0%, #f7e98e 100%)' : '#888';
+    const borderColor = isRoyal ? '#b8941c' : '#666';
+    const points = card.points || 0;
+    
+    html += `
+      <div class="misc-card-tiny" style="left: ${offsetX}px; background: ${bgColor}; border-color: ${borderColor};" title="${isRoyal ? 'Royal' : 'Point'} Card: ${points} pts">
+        <span class="misc-card-pts">${points}</span>
+      </div>
+    `;
+  });
+  
+  html += '</div></div>';
+  return html;
+};
+
 const renderPlayerHand = (playerId) => {
   const { cards, points, wildStacks } = getPlayerCards(playerId);
   const player = gameState.players[playerId];
   const colors = ['blue', 'white', 'green', 'red', 'black'];
+  const stats = getPlayerVictoryStats(playerId);
   
-  let html = '<div class="color-cards-row">';
+  // Build compact header strip: stats | misc fan | resources+reserve
+  const reserveCount = player.reserves.length;
+  const hasGoldAvailable = hasGoldOnBoard();
+  const reserveDisabled = reserveMode || reserveCount >= 3 || !hasGoldAvailable;
+  const reserveTooltip = reserveCount >= 3
+    ? 'You already have 3 reserved cards.'
+    : (!hasGoldAvailable ? 'Cannot reserve: no gold on the board.' : 'Reserve a card.');
+  
+  let html = `
+    <div class="hand-header-strip">
+      <div class="hand-stats-group">
+        <div class="hand-stat score">${stats.totalPoints}</div>
+        <div class="hand-stat crown">${generateCrownIcon(14)}<span>${stats.totalCrowns}</span></div>
+        <div class="hand-stat color-pip ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"><span>${stats.maxPoints}</span></div>
+      </div>
+      ${renderMiscCardsFanInline(playerId)}
+      <div class="hand-resources-group">
+        ${generateResourceIcons(playerId, 20)}
+        <button onclick="enterReserveMode()" class="hand-reserve-btn-compact" ${reserveDisabled ? 'disabled' : ''} title="${reserveTooltip}">Reserve</button>
+      </div>
+    </div>
+  `;
+  
+  html += '<div class="color-cards-row">';
   
   colors.forEach(color => {
     const cardCount = cards[color] || 0;
@@ -2517,17 +2625,25 @@ const renderPlayerHand = (playerId) => {
     html += renderPlayerColorCard(color, cardCount, tokenCount, points[color] || 0, hasWild);
   });
   
-  // Add reserved cards section
-  const reserveCount = gameState.players[playerId].reserves.length;
+  // Add reserved cards section - check if any reserved card is affordable
   const reservedEmptyClass = reserveCount === 0 ? 'reserved-section-empty' : 'reserved-section-filled';
+  let canAffordReserved = false;
+  if (reserveCount > 0) {
+    canAffordReserved = player.reserves.some(card => {
+      const afford = getAffordability(card, playerId);
+      return afford.affordable;
+    });
+  }
+  const affordableClass = canAffordReserved ? 'reserved-affordable' : '';
   html += `
-    <div class="reserved-section ${reservedEmptyClass}" id="show-reserved" data-clickable="popover" data-popover="reserved-modal">
+    <div class="reserved-section ${reservedEmptyClass} ${affordableClass}" id="show-reserved" data-clickable="popover" data-popover="reserved-modal">
       <div class="reserved-count">${reserveCount}</div>
       <div class="reserved-label">Reserved</div>
     </div>
   `;
   
   html += '</div>';
+  
   return html;
 };
 
@@ -2602,22 +2718,15 @@ const renderOpponentStats = () => {
   const opponentReservedEmptyClass = reserveCount === 0 ? 'opponent-reserved-section-empty' : 'opponent-reserved-section-filled';
   
   return `
-    <div class="opponent-resources-bar">
-      <div class="opponent-victory-tracker-left">
-        <div class="victory-stat small">
-          <div class="victory-value score-value">${stats.totalPoints}</div>
-        </div>
-        <div class="victory-stat small">
-          <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
-          <div class="victory-value overlaid">${stats.totalCrowns}</div>
-        </div>
-        <div class="victory-stat small">
-          <div class="victory-icon-backdrop color ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"></div>
-          <div class="victory-value overlaid">${stats.maxPoints}</div>
-        </div>
+    <div class="opponent-header-strip">
+      <div class="opponent-stats-group">
+        <div class="hand-stat score">${stats.totalPoints}</div>
+        <div class="hand-stat crown">${generateCrownIcon(14)}<span>${stats.totalCrowns}</span></div>
+        <div class="hand-stat color-pip ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"><span>${stats.maxPoints}</span></div>
       </div>
-      <div class="opponent-resources">
-        ${generateResourceIcons(opponentId, 22)}
+      ${renderMiscCardsFanInline(opponentId)}
+      <div class="opponent-resources-group">
+        ${generateResourceIcons(opponentId, 20)}
       </div>
     </div>
     <div class="opponent-color-cards-row">
@@ -2790,7 +2899,21 @@ const generateGameLayout = () => {
                 <!-- Tokens will be populated dynamically -->
               </div>
               <div class="token-discard-actions">
+                <button class="btn-minimize" id="minimize-discard-btn" onclick="minimizeDiscardModal()">Minimize</button>
                 <button class="btn-confirm" id="confirm-discard-btn" onclick="confirmTokenDiscard()">Confirm</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Generic Confirmation Modal -->
+          <div class="modal-overlay card-modal-overlay" id="confirmation-modal" style="display: none;">
+            <div class="modal-content confirmation-content">
+              <div class="confirmation-message" id="confirmation-message">
+                <!-- Message will be populated dynamically -->
+              </div>
+              <div class="confirmation-actions">
+                <button class="btn-cancel" id="confirmation-cancel-btn">Cancel</button>
+                <button class="btn-confirm" id="confirmation-confirm-btn">Confirm</button>
               </div>
             </div>
           </div>
@@ -2894,41 +3017,6 @@ const generateGameLayout = () => {
           </div>
         </div>
 
-      <!-- Player Stats Section -->
-      <div class="player-stats-bar">
-        ${(() => {
-          const stats = getPlayerVictoryStats(turnDisplayState.activePlayerId);
-          const actionPlayerId = getActionPlayerId();
-          const player = gameState.players[actionPlayerId];
-          const reserveCount = player.reserves.length;
-          const hasGoldAvailable = hasGoldOnBoard();
-          const reserveDisabled = reserveMode || reserveCount >= 3 || !hasGoldAvailable;
-          const reserveTooltip = reserveCount >= 3
-            ? 'You already have 3 reserved cards.'
-            : (!hasGoldAvailable ? 'Cannot reserve: no gold on the board.' : 'Reserve a card.');
-          return `
-            <div class="player-stats-left">
-              <div class="victory-tracker-left">
-                <div class="victory-stat large">
-                  <div class="victory-value score-value-large">${stats.totalPoints}</div>
-                </div>
-                <div class="victory-stat large">
-                  <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
-                  <div class="victory-value overlaid">${stats.totalCrowns}</div>
-                </div>
-                <div class="victory-stat large">
-                  <div class="victory-icon-backdrop color ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"></div>
-                  <div class="victory-value overlaid">${stats.maxPoints}</div>
-                </div>
-              </div>
-              <button onclick="enterReserveMode()" class="action-button reserve-button reserve-toggle-button" ${reserveDisabled ? 'disabled' : ''} title="${reserveTooltip}">Reserve</button>
-            </div>
-          `;
-        })()}
-        <div class="player-resources">
-          ${generateResourceIcons(turnDisplayState.activePlayerId, 24)}
-        </div>
-      </div>
 
       <!-- Global Hand Display (always at bottom) -->
       <div class="global-hand-display" id="player-hand">
@@ -3597,7 +3685,23 @@ const reserveSelectedCard = () => {
     alert("You cannot reserve a card when there is no gold on the board.");
     return;
   }
+  
+  // Check if this action will exceed token limit (reserving grants a gold token)
+  const tokenCheck = willExceedTokenLimit(actionPlayerId, 1);
+  if (tokenCheck.willExceed) {
+    const confirmMsg = `Reserving this card will give you ${tokenCheck.after} tokens (limit is 10). You'll need to discard ${tokenCheck.excessCount} token${tokenCheck.excessCount > 1 ? 's' : ''} after this action.<br><br>Continue?`;
+    showConfirmationModal(confirmMsg, () => {
+      proceedWithReserveSelected();
+    });
+    return;
+  }
 
+  proceedWithReserveSelected();
+};
+
+const proceedWithReserveSelected = () => {
+  const actionPlayerId = getActionPlayerId();
+  const player = gameState.players[actionPlayerId];
   reserveMode = false;
 
   const reservedCardSnapshot = selectedCard ? { ...selectedCard } : null;
@@ -3631,6 +3735,9 @@ const reserveSelectedCard = () => {
   checkAndShowRoyalCardSelection();
 };
 
+// State for pending deck reserve
+let pendingReserveDeckLevel = null;
+
 // Reserve the top card from a deck
 const reserveFromDeck = (level) => {
   if (!ensureLocalTurn("Reserving cards is only allowed on your turn.")) return;
@@ -3647,7 +3754,27 @@ const reserveFromDeck = (level) => {
     alert("You cannot reserve a card when there is no gold on the board.");
     return;
   }
+  
+  // Check if this action will exceed token limit (reserving grants a gold token)
+  const tokenCheck = willExceedTokenLimit(actionPlayerId, 1);
+  if (tokenCheck.willExceed) {
+    pendingReserveDeckLevel = level;
+    const confirmMsg = `Reserving this card will give you ${tokenCheck.after} tokens (limit is 10). You'll need to discard ${tokenCheck.excessCount} token${tokenCheck.excessCount > 1 ? 's' : ''} after this action.<br><br>Continue?`;
+    showConfirmationModal(confirmMsg, () => {
+      proceedWithReserveFromDeck(pendingReserveDeckLevel);
+      pendingReserveDeckLevel = null;
+    }, () => {
+      pendingReserveDeckLevel = null;
+    });
+    return;
+  }
 
+  proceedWithReserveFromDeck(level);
+};
+
+const proceedWithReserveFromDeck = (level) => {
+  const actionPlayerId = getActionPlayerId();
+  const player = gameState.players[actionPlayerId];
   reserveMode = false;
   
   const levelKey = `level${level}`;
@@ -4131,8 +4258,25 @@ const confirmTokenSelection = () => {
     return;
   }
   
-  // Add tokens to player's hand
+  // Check if this action will exceed token limit
   const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const tokenCheck = willExceedTokenLimit(currentPlayer, selectedTokens.length);
+  if (tokenCheck.willExceed) {
+    const confirmMsg = `This will give you ${tokenCheck.after} tokens (limit is 10). You'll need to discard ${tokenCheck.excessCount} token${tokenCheck.excessCount > 1 ? 's' : ''} after this action.<br><br>Continue?`;
+    showConfirmationModal(confirmMsg, () => {
+      proceedWithTokenSelection();
+    });
+    return;
+  }
+  
+  // No warning needed, proceed directly
+  proceedWithTokenSelection();
+};
+
+// Proceed with token selection (after validation and confirmation)
+const proceedWithTokenSelection = () => {
+  const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  // Add tokens to player's hand
   const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
   const selectedColors = selectedTokens.map(({ token }) => token);
   let scrollAwardedTo = null;
@@ -4273,6 +4417,13 @@ const refillBoard = () => {
     return;
   }
   
+  // Show confirmation before refilling
+  showConfirmationModal("Are you sure you want to refill the board?<br><br>Your opponent will receive a scroll.", () => {
+    proceedWithRefillBoard();
+  });
+};
+
+const proceedWithRefillBoard = () => {
   // Get all tokens from bag as flat array and shuffle
   const bagTokens = bagToArray();
   const shuffled = shuffleArray(bagTokens);
@@ -4419,6 +4570,24 @@ const confirmScrollSelection = () => {
   if (!ensureLocalTurn("Scrolls can only be used during your turn.")) return;
   if (!scrollSelectedToken) return;
   
+  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  
+  // Check if this action will exceed token limit
+  const tokenCheck = willExceedTokenLimit(currentPlayerId, 1);
+  if (tokenCheck.willExceed) {
+    const confirmMsg = `Using this scroll will give you ${tokenCheck.after} tokens (limit is 10). You'll need to discard ${tokenCheck.excessCount} token${tokenCheck.excessCount > 1 ? 's' : ''} after this action.<br><br>Continue?`;
+    showConfirmationModal(confirmMsg, () => {
+      proceedWithScrollSelection();
+    });
+    return;
+  }
+  
+  // No warning needed, proceed directly
+  proceedWithScrollSelection();
+};
+
+// Proceed with scroll selection (after confirmation)
+const proceedWithScrollSelection = () => {
   const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const player = gameState.players[currentPlayerId];
   
@@ -4587,6 +4756,15 @@ const getTotalTokenCount = (playerId) => {
   return tokenColors.reduce((total, color) => total + (player.tokens[color] || 0), 0);
 };
 
+// Helper function to check if gaining tokens will exceed the 10-token limit
+const willExceedTokenLimit = (playerId, tokensToGain) => {
+  const current = getTotalTokenCount(playerId);
+  const after = current + tokensToGain;
+  const willExceed = after > 10;
+  const excessCount = willExceed ? after - 10 : 0;
+  return { willExceed, current, after, excessCount };
+};
+
 // Turn switching system functions
 // Check if player has earned a royal card and show selection if needed
 const checkAndShowRoyalCardSelection = () => {
@@ -4728,6 +4906,141 @@ const closeTurnCompletionDialog = () => {
   }
 };
 
+// Minimize the discard modal and show restore button
+const minimizeDiscardModal = () => {
+  discardModalMinimized = true;
+  const modal = document.getElementById('token-discard-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  
+  // Hide royal cards and show restore button with message
+  const royalTrigger = document.getElementById('royal-cards-trigger');
+  if (royalTrigger) {
+    royalTrigger.style.display = 'none';
+  }
+  
+  // Create message and restore button container in royal card position
+  const pyramidRow = document.querySelector('.pyramid-row:first-child');
+  if (pyramidRow && !document.getElementById('discard-pending-container')) {
+    const container = document.createElement('div');
+    container.id = 'discard-pending-container';
+    container.className = 'discard-pending-container';
+    container.innerHTML = `
+      <div class="discard-pending-message">
+        <span>Select tokens to discard</span>
+      </div>
+      <div id="restore-discard-btn" class="royal-cards-summary card-shaped restore-discard-button">
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 4px; padding: 8px;">
+          <div style="font-size: 1.8em;">📋</div>
+          <div style="font-size: 0.65em; text-align: center; line-height: 1.2;">Discard ${requiredDiscardCount}</div>
+        </div>
+      </div>
+    `;
+    pyramidRow.appendChild(container);
+    
+    // Attach click handler
+    const restoreBtn = document.getElementById('restore-discard-btn');
+    if (restoreBtn) {
+      restoreBtn.onclick = maximizeDiscardModal;
+    }
+  }
+  
+  // Switch from dialog-blocking to discard-pending (allows viewing, blocks actions)
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.remove('dialog-blocking');
+    gameContainer.classList.add('discard-pending');
+  }
+};
+
+// Maximize/restore the discard modal
+const maximizeDiscardModal = () => {
+  discardModalMinimized = false;
+  
+  // Remove the pending container (includes restore button and message)
+  const container = document.getElementById('discard-pending-container');
+  if (container) {
+    container.remove();
+  }
+  
+  // Show royal cards again
+  const royalTrigger = document.getElementById('royal-cards-trigger');
+  if (royalTrigger) {
+    royalTrigger.style.display = '';
+  }
+  
+  // Show modal
+  const modal = document.getElementById('token-discard-modal');
+  if (modal) {
+    modal.style.display = 'flex';
+  }
+  
+  // Switch from discard-pending back to dialog-blocking
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.remove('discard-pending');
+    gameContainer.classList.add('dialog-blocking');
+  }
+};
+
+// Generic confirmation modal system
+let confirmationCallback = null;
+
+const showConfirmationModal = (message, onConfirm, onCancel = null) => {
+  const modal = document.getElementById('confirmation-modal');
+  const messageEl = document.getElementById('confirmation-message');
+  const confirmBtn = document.getElementById('confirmation-confirm-btn');
+  const cancelBtn = document.getElementById('confirmation-cancel-btn');
+  
+  if (!modal || !messageEl || !confirmBtn || !cancelBtn) return;
+  
+  // Set message
+  messageEl.innerHTML = `<p>${message}</p>`;
+  
+  // Store callback
+  confirmationCallback = onConfirm;
+  
+  // Setup button handlers
+  confirmBtn.onclick = () => {
+    const callback = confirmationCallback; // Save before closing clears it
+    closeConfirmationModal();
+    if (callback) {
+      callback();
+    }
+  };
+  
+  cancelBtn.onclick = () => {
+    const cancelCallback = onCancel; // Save reference
+    closeConfirmationModal();
+    if (cancelCallback) {
+      cancelCallback();
+    }
+  };
+  
+  // Add blocking class
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.add('dialog-blocking');
+  }
+  
+  modal.style.display = 'flex';
+};
+
+const closeConfirmationModal = () => {
+  const modal = document.getElementById('confirmation-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  
+  const gameContainer = document.querySelector('.game-container');
+  if (gameContainer) {
+    gameContainer.classList.remove('dialog-blocking');
+  }
+  
+  confirmationCallback = null;
+};
+
 // Show token discard modal when player has more than 10 tokens
 const showTokenDiscardModal = () => {
   const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
@@ -4739,6 +5052,7 @@ const showTokenDiscardModal = () => {
   tokensToDiscard = [];
   tokenDiscardMode = true;
   requiredDiscardCount = tokensToDiscardCount;
+  discardModalMinimized = false;
   
   // Add blocking class to game container
   const gameContainer = document.querySelector('.game-container');
@@ -4753,7 +5067,7 @@ const showTokenDiscardModal = () => {
   
   if (!modal || !messageEl || !gridEl) return;
   
-  // Set message (just the instruction, no header)
+  // Set message
   messageEl.innerHTML = `
     <p>You may not keep more than 10 tokens. Select ${tokensToDiscardCount} token${tokensToDiscardCount > 1 ? 's' : ''} to discard.</p>
   `;
@@ -4864,6 +5178,19 @@ const confirmTokenDiscard = () => {
   tokensToDiscard = [];
   tokenDiscardMode = false;
   requiredDiscardCount = 0;
+  discardModalMinimized = false;
+  
+  // Remove pending container if it exists
+  const container = document.getElementById('discard-pending-container');
+  if (container) {
+    container.remove();
+  }
+  
+  // Show royal cards again if they were hidden
+  const royalTrigger = document.getElementById('royal-cards-trigger');
+  if (royalTrigger) {
+    royalTrigger.style.display = '';
+  }
   
   // Close modal
   const modal = document.getElementById('token-discard-modal');
@@ -4871,10 +5198,11 @@ const confirmTokenDiscard = () => {
     modal.style.display = 'none';
   }
   
-  // Remove blocking class
+  // Remove blocking classes
   const gameContainer = document.querySelector('.game-container');
   if (gameContainer) {
     gameContainer.classList.remove('dialog-blocking');
+    gameContainer.classList.remove('discard-pending');
   }
   
   // Re-render game
@@ -4894,6 +5222,8 @@ const confirmTokenDiscard = () => {
 // Expose token discard functions to global scope (after they're defined)
 window.confirmTokenDiscard = confirmTokenDiscard;
 window.toggleTokenDiscard = toggleTokenDiscard;
+window.minimizeDiscardModal = minimizeDiscardModal;
+window.maximizeDiscardModal = maximizeDiscardModal;
 
 const switchPlayers = () => {
   // Swap the display state
@@ -4908,44 +5238,15 @@ const switchPlayers = () => {
   // Add transition class to elements
   const handDisplay = document.getElementById('player-hand');
   const opponentStats = document.getElementById('opponent-stats');
-  const playerStats = document.querySelector('.player-stats-bar');
   
   if (handDisplay) handDisplay.classList.add('switching');
   if (opponentStats) opponentStats.classList.add('switching');
-  if (playerStats) playerStats.classList.add('switching');
   
   // Wait for transition, then update content
   setTimeout(() => {
     // Update opponent stats
     if (opponentStats) {
       opponentStats.innerHTML = renderOpponentStats();
-    }
-    
-    // Update player stats
-    if (playerStats) {
-      const stats = getPlayerVictoryStats(turnDisplayState.activePlayerId);
-      const victoryTracker = playerStats.querySelector('.victory-tracker-left');
-      const resources = playerStats.querySelector('.player-resources');
-      
-      if (victoryTracker) {
-        victoryTracker.innerHTML = `
-          <div class="victory-stat large">
-            <div class="victory-value score-value-large">${stats.totalPoints}</div>
-          </div>
-          <div class="victory-stat large">
-            <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
-            <div class="victory-value overlaid">${stats.totalCrowns}</div>
-          </div>
-          <div class="victory-stat large">
-            <div class="victory-icon-backdrop color ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"></div>
-            <div class="victory-value overlaid">${stats.maxPoints}</div>
-          </div>
-        `;
-      }
-      
-      if (resources) {
-        resources.innerHTML = generateResourceIcons(turnDisplayState.activePlayerId, 24);
-      }
     }
     
     // Update hand display
@@ -4991,7 +5292,6 @@ const switchPlayers = () => {
     setTimeout(() => {
       if (handDisplay) handDisplay.classList.remove('switching');
       if (opponentStats) opponentStats.classList.remove('switching');
-      if (playerStats) playerStats.classList.remove('switching');
     }, 50);
   }, 300); // Match CSS transition duration
 };
