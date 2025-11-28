@@ -2021,7 +2021,10 @@ const renderPaymentContent = () => {
     if (hideReserve) {
       reserveBtn.style.display = 'none';
     } else {
-      reserveBtn.disabled = gameState.players[rpId].reserves.length >= 3;
+      const hasGold = hasGoldOnBoard();
+      const canReserve = gameState.players[rpId].reserves.length < 3;
+      reserveBtn.disabled = !canReserve || !hasGold;
+      reserveBtn.title = !hasGold ? 'Cannot reserve: no gold on board' : (!canReserve ? 'Cannot reserve: already have 3 reserved cards' : '');
     }
   }
 };
@@ -2793,25 +2796,47 @@ const generateGameLayout = () => {
           </div>
 
           
-          <div class="card-pyramid">
+          <div class="card-pyramid ${reserveMode ? 'reserve-mode' : ''}">
             <div class="pyramid-row">
-              <div class="deck-meter-container">
-                <div class="deck-meter">
-                  <div class="meter-fill level-1" style="height: ${getDeckMeterHeight(1)}%"></div>
+              ${reserveMode ? `
+                <div class="deck-meter-container" data-clickable="reserve-deck" data-deck-level="1">
+                  <div class="deck-placeholder">?</div>
                 </div>
-              </div>
+              ` : `
+                <div class="deck-meter-container">
+                  <div class="deck-meter">
+                    <div class="meter-fill level-1" style="height: ${getDeckMeterHeight(1)}%"></div>
+                  </div>
+                </div>
+              `}
               ${gameState.pyramid.level1.map((card, idx) => {
                 card._pyramidIndex = idx;
                 const afford = getAffordability(card, viewerPlayerId);
-                return renderCardV2(card, 'level-1-card', afford.affordable);
+                // In reserve mode, everything is clickable for reserve unless reserved (not possible here since pyramid)
+                // We use a special data attribute to intercept clicks
+                const clickableData = reserveMode 
+                  ? 'data-clickable="reserve-target"' 
+                  : 'data-clickable="card" data-popover="card-detail-popover"';
+                
+                return renderCardV2(card, 'level-1-card', afford.affordable).replace('data-clickable="card" data-popover="card-detail-popover"', clickableData);
               }).join('')}
-              <div class="card-spacer"></div>
+              
               <div class="card-spacer"></div>
               ${(() => {
                 const availableCount = gameState.royalCards.filter(card => !card.taken).length;
                 const isEmpty = availableCount === 0;
                 const clickableAttr = isEmpty ? '' : 'data-clickable="popover" data-popover="royal-modal"';
                 const emptyClass = isEmpty ? 'royal-cards-empty' : '';
+                if (reserveMode) {
+                  return `
+                    <div class="reserve-royal-group reserve-mode-active">
+                      <div class="reserve-mode-panel">
+                        <div class="reserve-mode-title">Select a Card</div>
+                        <button onclick="exitReserveMode()" class="action-button cancel-button reserve-mode-cancel">Cancel</button>
+                      </div>
+                    </div>
+                  `;
+                }
                 return `
                   <div class="royal-cards-summary card-shaped ${emptyClass}" id="royal-cards-trigger" ${clickableAttr}>
                     <div class="royal-card-icon-centered ${isEmpty ? 'royal-icon-greyed' : ''}">${generateCrownIcon(32)}</div>
@@ -2822,28 +2847,46 @@ const generateGameLayout = () => {
             </div>
 
             <div class="pyramid-row">
-              <div class="deck-meter-container">
-                <div class="deck-meter">
-                  <div class="meter-fill level-2" style="height: ${getDeckMeterHeight(2)}%"></div>
+              ${reserveMode ? `
+                <div class="deck-meter-container" data-clickable="reserve-deck" data-deck-level="2">
+                  <div class="deck-placeholder">?</div>
                 </div>
-              </div>
+              ` : `
+                <div class="deck-meter-container">
+                  <div class="deck-meter">
+                    <div class="meter-fill level-2" style="height: ${getDeckMeterHeight(2)}%"></div>
+                  </div>
+                </div>
+              `}
               ${gameState.pyramid.level2.map((card, idx) => {
                 card._pyramidIndex = idx;
                 const afford = getAffordability(card, viewerPlayerId);
-                return renderCardV2(card, 'level-2-card', afford.affordable);
+                const clickableData = reserveMode 
+                  ? 'data-clickable="reserve-target"' 
+                  : 'data-clickable="card" data-popover="card-detail-popover"';
+                return renderCardV2(card, 'level-2-card', afford.affordable).replace('data-clickable="card" data-popover="card-detail-popover"', clickableData);
               }).join('')}
             </div>
 
             <div class="pyramid-row">
-              <div class="deck-meter-container">
-                <div class="deck-meter">
-                  <div class="meter-fill level-3" style="height: ${getDeckMeterHeight(3)}%"></div>
+              ${reserveMode ? `
+                <div class="deck-meter-container" data-clickable="reserve-deck" data-deck-level="3">
+                  <div class="deck-placeholder">?</div>
                 </div>
-              </div>
+              ` : `
+                <div class="deck-meter-container">
+                  <div class="deck-meter">
+                    <div class="meter-fill level-3" style="height: ${getDeckMeterHeight(3)}%"></div>
+                  </div>
+                </div>
+              `}
               ${gameState.pyramid.level3.map((card, idx) => {
                 card._pyramidIndex = idx;
                 const afford = getAffordability(card, viewerPlayerId);
-                return renderCardV2(card, 'level-3-card', afford.affordable);
+                const clickableData = reserveMode 
+                  ? 'data-clickable="reserve-target"' 
+                  : 'data-clickable="card" data-popover="card-detail-popover"';
+                return renderCardV2(card, 'level-3-card', afford.affordable).replace('data-clickable="card" data-popover="card-detail-popover"', clickableData);
               }).join('')}
               <div class="card-spacer"></div>
               <div class="card-spacer"></div>
@@ -2855,20 +2898,32 @@ const generateGameLayout = () => {
       <div class="player-stats-bar">
         ${(() => {
           const stats = getPlayerVictoryStats(turnDisplayState.activePlayerId);
+          const actionPlayerId = getActionPlayerId();
+          const player = gameState.players[actionPlayerId];
+          const reserveCount = player.reserves.length;
+          const hasGoldAvailable = hasGoldOnBoard();
+          const reserveDisabled = reserveMode || reserveCount >= 3 || !hasGoldAvailable;
+          const reserveTooltip = reserveCount >= 3
+            ? 'You already have 3 reserved cards.'
+            : (!hasGoldAvailable ? 'Cannot reserve: no gold on the board.' : 'Reserve a card.');
           return `
-            <div class="victory-tracker-left">
-              <div class="victory-stat large">
-                <div class="victory-value score-value-large">${stats.totalPoints}</div>
+            <div class="player-stats-left">
+              <div class="victory-tracker-left">
+                <div class="victory-stat large">
+                  <div class="victory-value score-value-large">${stats.totalPoints}</div>
+                </div>
+                <div class="victory-stat large">
+                  <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
+                  <div class="victory-value overlaid">${stats.totalCrowns}</div>
+                </div>
+                <div class="victory-stat large">
+                  <div class="victory-icon-backdrop color ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"></div>
+                  <div class="victory-value overlaid">${stats.maxPoints}</div>
+                </div>
               </div>
-              <div class="victory-stat large">
-                <div class="victory-icon-backdrop crown">${generateCrownIcon(18)}</div>
-                <div class="victory-value overlaid">${stats.totalCrowns}</div>
-              </div>
-              <div class="victory-stat large">
-                <div class="victory-icon-backdrop color ${stats.maxColor} ${stats.maxPoints === 0 ? 'empty' : ''}"></div>
-                <div class="victory-value overlaid">${stats.maxPoints}</div>
-              </div>
-            </div>`;
+              <button onclick="enterReserveMode()" class="action-button reserve-button reserve-toggle-button" ${reserveDisabled ? 'disabled' : ''} title="${reserveTooltip}">Reserve</button>
+            </div>
+          `;
         })()}
         <div class="player-resources">
           ${generateResourceIcons(turnDisplayState.activePlayerId, 24)}
@@ -3453,7 +3508,7 @@ const populateCardDetailPopover = (card) => {
   const fromReserve = purchaseContext && purchaseContext.source === 'reserve';
   modalBody.innerHTML = `
     <div style="display:flex; flex-direction:column; gap:10px; padding:12px; height:100%; box-sizing:border-box; position:relative;">
-      ${fromReserve ? '' : `<button onclick="reserveSelectedCard()" class="action-button reserve-button reserve-button-top-right" ${gameState.players[currentPlayerId].reserves.length >= 3 ? 'disabled' : ''}>Reserve</button>`}
+      ${fromReserve ? '' : ''}
       <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start; flex:1 1 auto; overflow:hidden;">
         <div style="display:flex; justify-content:center; align-items:center; transform: scale(2); transform-origin: top left; position: relative; z-index: 1;">
           ${cardHTML}
@@ -3502,23 +3557,18 @@ const buySelectedCard = () => {
   renderGame();
 };
 
-const reserveSelectedCard = () => {
-  if (!ensureLocalTurn("Reserving cards is only allowed on your turn.")) return;
-  if (!selectedCard) return;
-  const actionPlayerId = getActionPlayerId();
-  const player = gameState.players[actionPlayerId];
-  // Guard: max 3 reserves
-  if (player.reserves.length >= 3) return;
+// Helper function to check if there's gold on the board
+const hasGoldOnBoard = () => {
+  for (let r = 0; r < gameState.board.length; r++) {
+    for (let c = 0; c < gameState.board[r].length; c++) {
+      if (gameState.board[r][c] === 'gold') return true;
+    }
+  }
+  return false;
+};
 
-  const reservedCardSnapshot = selectedCard ? { ...selectedCard } : null;
-  const level = selectedCard.level;
-  const levelKey = `level${level}`;
-  const index = selectedCard._pyramidIndex;
-
-  // Add to player reserves
-  player.reserves.push(selectedCard);
-
-  // Attempt to award a random gold token from the board if any exist
+// Helper function to award a random gold token from the board
+const awardGoldFromBoard = (player) => {
   const goldCells = [];
   for (let r = 0; r < gameState.board.length; r++) {
     for (let c = 0; c < gameState.board[r].length; c++) {
@@ -3529,7 +3579,37 @@ const reserveSelectedCard = () => {
     const [gr, gc] = goldCells[Math.floor(Math.random() * goldCells.length)];
     gameState.board[gr][gc] = null;
     player.tokens.gold = (player.tokens.gold || 0) + 1;
+    return true;
   }
+  return false;
+};
+
+const reserveSelectedCard = () => {
+  if (!ensureLocalTurn("Reserving cards is only allowed on your turn.")) return;
+  if (!selectedCard) return;
+  const actionPlayerId = getActionPlayerId();
+  const player = gameState.players[actionPlayerId];
+  // Guard: max 3 reserves
+  if (player.reserves.length >= 3) return;
+  
+  // Guard: must have gold on board to reserve (per official rules)
+  if (!hasGoldOnBoard()) {
+    alert("You cannot reserve a card when there is no gold on the board.");
+    return;
+  }
+
+  reserveMode = false;
+
+  const reservedCardSnapshot = selectedCard ? { ...selectedCard } : null;
+  const level = selectedCard.level;
+  const levelKey = `level${level}`;
+  const index = selectedCard._pyramidIndex;
+
+  // Add to player reserves
+  player.reserves.push(selectedCard);
+
+  // Award a random gold token from the board
+  const goldAwarded = awardGoldFromBoard(player);
 
   // Remove from pyramid
   gameState.pyramid[levelKey].splice(index, 1);
@@ -3543,11 +3623,164 @@ const reserveSelectedCard = () => {
   closePopover('card-detail-popover');
   logTurnEvent('card_reserved', {
     card: reservedCardSnapshot ? summarizeCard(reservedCardSnapshot) : null,
-    goldAwarded: goldCells.length > 0
+    goldAwarded: goldAwarded,
+    source: 'pyramid'
   });
   // Re-render the game
   renderGame();
   checkAndShowRoyalCardSelection();
+};
+
+// Reserve the top card from a deck
+const reserveFromDeck = (level) => {
+  if (!ensureLocalTurn("Reserving cards is only allowed on your turn.")) return;
+  const actionPlayerId = getActionPlayerId();
+  const player = gameState.players[actionPlayerId];
+  // Guard: max 3 reserves
+  if (player.reserves.length >= 3) {
+    alert("You already have 3 reserved cards and cannot reserve another.");
+    return;
+  }
+  
+  // Guard: must have gold on board to reserve (per official rules)
+  if (!hasGoldOnBoard()) {
+    alert("You cannot reserve a card when there is no gold on the board.");
+    return;
+  }
+
+  reserveMode = false;
+  
+  const levelKey = `level${level}`;
+  // Guard: deck must have cards
+  if (gameState.decks[levelKey].length === 0) {
+    alert(`The level ${level} deck is empty.`);
+    return;
+  }
+
+  // Draw the top card from the deck
+  const card = gameState.decks[levelKey].shift();
+  
+  // Add to player reserves
+  player.reserves.push(card);
+
+  // Award a random gold token from the board
+  const goldAwarded = awardGoldFromBoard(player);
+
+  closePopover('card-detail-popover');
+
+  logTurnEvent('card_reserved', {
+    card: summarizeCard(card),
+    goldAwarded: goldAwarded,
+    source: 'deck',
+    level: level
+  });
+  
+  // Show the reserved card before turn completion
+  showReservedCardReveal(card);
+};
+
+let reserveMode = false;
+
+// Reserve Mode Helpers
+const enterReserveMode = () => {
+  if (!ensureLocalTurn("Reserving cards is only allowed on your turn.")) return;
+  
+  const actionPlayerId = getActionPlayerId();
+  const player = gameState.players[actionPlayerId];
+  if (player.reserves.length >= 3) {
+    alert("You already have 3 reserved cards and cannot reserve another.");
+    return;
+  }
+  if (!hasGoldOnBoard()) {
+    alert("You cannot reserve a card when there is no gold on the board.");
+    return;
+  }
+
+  reserveMode = true;
+  renderGame();
+};
+
+const exitReserveMode = () => {
+  reserveMode = false;
+  renderGame();
+};
+
+const confirmReserveFromPyramid = (card) => {
+  selectedCard = card; // Set global selection for the action
+  const modalBody = document.querySelector('#card-detail-popover .modal-body');
+  if (modalBody) {
+    const cardHTML = renderCardV2(card, `level-${card.level}-card`);
+    modalBody.innerHTML = `
+      <div class="reserve-confirm-modal">
+        <h3>Reserve this card?</h3>
+        <div class="reserve-confirm-card-wrapper">
+          <div class="reserve-confirm-card-container">
+            ${cardHTML}
+          </div>
+        </div>
+        <div class="reserve-confirm-actions">
+          <button onclick="reserveSelectedCard()" class="action-button reserve-button">Confirm Reserve</button>
+          <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Cancel</button>
+        </div>
+      </div>
+    `;
+    openPopover('card-detail-popover');
+  }
+};
+
+const confirmReserveFromDeck = (level) => {
+  const modalBody = document.querySelector('#card-detail-popover .modal-body');
+  if (modalBody) {
+    modalBody.innerHTML = `
+      <div class="reserve-confirm-modal">
+        <h3 class="reserve-confirm-title">Reserve from Level ${level} Deck?</h3>
+        <div class="reserve-confirm-card-wrapper">
+          <div class="reserve-confirm-card-container">
+            <div class="face-down-card">?</div>
+          </div>
+        </div>
+        <div class="reserve-confirm-actions">
+          <button onclick="reserveFromDeck(${level})" class="action-button reserve-button">Confirm Reserve</button>
+          <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Cancel</button>
+        </div>
+      </div>
+    `;
+    openPopover('card-detail-popover');
+  }
+};
+
+const handleReserveRevealContinue = () => {
+  closePopover('card-detail-popover');
+  setTimeout(() => {
+    renderGame();
+    setTimeout(() => checkAndShowRoyalCardSelection(), 50);
+  }, 50);
+};
+
+// Show the reserved card after deck reserve
+const showReservedCardReveal = (card) => {
+  const modalBody = document.querySelector('#card-detail-popover .modal-body');
+  if (modalBody) {
+    const cardHTML = renderCardV2(card, `level-${card.level}-card`);
+    modalBody.innerHTML = `
+      <div class="reserve-confirm-modal">
+        <h3 class="reserve-confirm-title">You Reserved</h3>
+        <div class="reserve-confirm-card-wrapper">
+          <div class="reserve-confirm-card-container">
+            ${cardHTML}
+          </div>
+        </div>
+        <div class="reserve-confirm-actions">
+          <button onclick="handleReserveRevealContinue()" class="action-button reserve-button">Continue</button>
+        </div>
+      </div>
+    `;
+    openPopover('card-detail-popover');
+  } else {
+    // Fallback if modal not available
+    renderGame();
+    checkAndShowRoyalCardSelection();
+  }
 };
 
 // Token selection state
@@ -4310,6 +4543,13 @@ const confirmRoyalCardSelection = () => {
 // Expose to global scope for onclick handlers
 window.buySelectedCard = buySelectedCard;
 window.reserveSelectedCard = reserveSelectedCard;
+window.reserveFromDeck = reserveFromDeck;
+window.enterReserveMode = enterReserveMode;
+window.exitReserveMode = exitReserveMode;
+window.confirmReserveFromPyramid = confirmReserveFromPyramid;
+window.confirmReserveFromDeck = confirmReserveFromDeck;
+window.showReservedCardReveal = showReservedCardReveal;
+window.handleReserveRevealContinue = handleReserveRevealContinue;
 window.confirmTokenSelection = confirmTokenSelection;
 window.refillBoard = refillBoard;
 window.enterScrollSelectionMode = enterScrollSelectionMode;
@@ -4801,6 +5041,29 @@ const attachPopoverListeners = () => {
       }
     };
     triggerEl.addEventListener('click', triggerEl._popoverHandler);
+  });
+  
+  // Find all deck reserve triggers
+  document.querySelectorAll('[data-clickable="reserve-deck"]').forEach(deckEl => {
+    deckEl._deckReserveHandler = (e) => {
+      const level = parseInt(deckEl.dataset.deckLevel, 10);
+      if (level >= 1 && level <= 3) {
+        confirmReserveFromDeck(level);
+      }
+    };
+    deckEl.addEventListener('click', deckEl._deckReserveHandler);
+  });
+
+  // Find all reserve target cards
+  document.querySelectorAll('[data-clickable="reserve-target"]').forEach(cardEl => {
+    cardEl._reserveTargetHandler = (e) => {
+      const level = cardEl.dataset.cardLevel;
+      const index = parseInt(cardEl.dataset.cardIndex, 10);
+      const levelKey = `level${level}`;
+      const card = gameState.pyramid[levelKey][index];
+      confirmReserveFromPyramid(card);
+    };
+    cardEl.addEventListener('click', cardEl._reserveTargetHandler);
   });
 };
 
