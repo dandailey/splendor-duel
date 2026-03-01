@@ -66,6 +66,11 @@ const gameState = {
     }
   },
   currentPlayer: 1,
+  gameOver: {
+    winnerId: null,
+    conditions: [],
+    winnerStats: null
+  },
   syncAssignments: {
     player1Id: null,
     player2Id: null
@@ -182,6 +187,7 @@ const previousCrownCounts = {
 // Royal card selection state
 let selectedRoyalCard = null;
 let royalCardSelectionMode = false;
+let rematchInProgress = false;
 
 // Card ability processing state
 let bonusTokenMode = false;
@@ -235,6 +241,7 @@ const syncContext = {
   localPlayerId: null,
   isHost: false,
   pollTimerId: null,
+  pollIntervalMs: null,
   syncStatus: 'offline', // 'offline', 'online', 'degraded'
   lastSeenTurnId: null
 };
@@ -248,6 +255,7 @@ class GameSyncClient {
     this.version = null;
     this.serviceAvailable = false;
     this.pollTimerId = null;
+    this.pollStopped = false;
   }
 
   async checkStatus() {
@@ -421,7 +429,12 @@ class GameSyncClient {
       throw new Error('No active session for polling');
     }
 
+    this.pollStopped = false;
+    let pollInFlight = false;
+
     const poll = async () => {
+      if (this.pollStopped || pollInFlight) return;
+      pollInFlight = true;
       try {
       const previousVersion = this.version;
         const session = await this.loadSession(this.sessionId);
@@ -437,16 +450,21 @@ class GameSyncClient {
         if (onUpdate) {
           onUpdate(null, error);
         }
+      } finally {
+        pollInFlight = false;
+      }
+      if (!this.pollStopped) {
+        this.pollTimerId = setTimeout(poll, intervalMs);
       }
     };
 
     poll();
-    this.pollTimerId = setInterval(poll, intervalMs);
   }
 
   stopPolling() {
+    this.pollStopped = true;
     if (this.pollTimerId) {
-      clearInterval(this.pollTimerId);
+      clearTimeout(this.pollTimerId);
       this.pollTimerId = null;
     }
   }
@@ -665,6 +683,12 @@ const initializeGame = () => {
   // Initialize previous crown counts
   previousCrownCounts.player1 = 0;
   previousCrownCounts.player2 = 0;
+  
+  gameState.gameOver = {
+    winnerId: null,
+    conditions: [],
+    winnerStats: null
+  };
 
   // Reset sync assignments for a new local game
   ensureSyncAssignmentsStructure();
@@ -749,6 +773,23 @@ const applySyncedState = (rawBlob) => {
     }
     
     ensureSyncAssignmentsStructure();
+    if (!gameState.gameOver || typeof gameState.gameOver !== "object") {
+      gameState.gameOver = {
+        winnerId: null,
+        conditions: [],
+        winnerStats: null
+      };
+    } else {
+      if (!Array.isArray(gameState.gameOver.conditions)) {
+        gameState.gameOver.conditions = [];
+      }
+      if (!gameState.gameOver.winnerId) {
+        gameState.gameOver.winnerId = null;
+      }
+      if (!gameState.gameOver.winnerStats || typeof gameState.gameOver.winnerStats !== "object") {
+        gameState.gameOver.winnerStats = null;
+      }
+    }
     
     // Re-render the game
     renderGame();
@@ -807,11 +848,61 @@ const clearTurnGuardMessage = () => {
 };
 
 const ensureLocalTurn = (reason = "This action is only available on your turn.") => {
+  if (isGameOver()) {
+    console.warn("Action blocked: game is already over.");
+    return false;
+  }
   if (!isOnlineOpponentTurn()) {
     return true;
   }
   showTurnBlockedNotice(reason);
   return false;
+};
+
+const isGameOver = () => Boolean(gameState.gameOver && gameState.gameOver.winnerId);
+
+const canUseSystemNotifications = () => typeof window !== "undefined" && "Notification" in window;
+
+const requestTurnNotificationPermission = async () => {
+  if (!canUseSystemNotifications()) {
+    return "unsupported";
+  }
+  if (Notification.permission !== "default") {
+    return Notification.permission;
+  }
+  try {
+    return await Notification.requestPermission();
+  } catch (error) {
+    console.warn("Notification permission request failed:", error);
+    return "error";
+  }
+};
+
+const notifyTurnReady = () => {
+  if (!syncContext.enabled || !syncContext.localPlayerId) return;
+  if (!canUseSystemNotifications()) return;
+  if (Notification.permission !== "granted") return;
+  if (!document.hidden && document.hasFocus()) return;
+
+  const playerLabel = syncContext.localPlayerId === "player1" ? "Player 1" : "Player 2";
+  const sessionText = trimSessionId(syncContext.sessionId) || "current session";
+  const notification = new Notification("Splendor Duel", {
+    body: `Your turn (${playerLabel}) in ${sessionText}.`,
+    tag: `splendor-duel-turn-${syncContext.sessionId || "unknown"}`,
+    renotify: true
+  });
+  notification.onclick = () => {
+    window.focus();
+    notification.close();
+  };
+  setTimeout(() => notification.close(), 10000);
+};
+
+const getTurnNotificationStatusLabel = () => {
+  if (!canUseSystemNotifications()) return "Unsupported";
+  if (Notification.permission === "granted") return "Enabled";
+  if (Notification.permission === "denied") return "Blocked";
+  return "Not enabled";
 };
 
 const trimSessionId = (sessionId) => {
@@ -1617,17 +1708,12 @@ const getPlayerMiscCards = (playerId) => {
   const greyCards = [];
   const royalCards = [];
   
-  // Get grey point-only cards (color === 'none')
-  player.cards.forEach(card => {
-    if (card.color === 'none') {
-      greyCards.push(card);
-    }
-  });
-  
-  // Get royal cards - they're marked with id starting with 'royal-'
+  // Single-pass split prevents royals from being duplicated in both lists.
   player.cards.forEach(card => {
     if (card.id && card.id.startsWith('royal-')) {
       royalCards.push(card);
+    } else if (card.color === 'none') {
+      greyCards.push(card);
     }
   });
   
@@ -1648,7 +1734,9 @@ const getPlayerVictoryStats = (playerId) => {
   player.cards.forEach(card => {
     totalPoints += card.points || 0;
     totalCrowns += card.crowns || 0;
-    if (card.color && card.color !== 'none' && card.color !== 'wild') {
+    if (card.color === "wild" && card.wildColorStack && colorPoints[card.wildColorStack] !== undefined) {
+      colorPoints[card.wildColorStack] += card.points || 0;
+    } else if (card.color && card.color !== 'none' && card.color !== 'wild') {
       colorPoints[card.color] += card.points || 0;
     }
   });
@@ -1673,6 +1761,36 @@ const getPlayerVictoryStats = (playerId) => {
     maxPoints
   };
 };
+
+const getVictoryConditions = (playerId) => {
+  const stats = getPlayerVictoryStats(playerId);
+  const conditions = [];
+
+  if (stats.totalPoints >= 20) {
+    conditions.push({
+      key: "points_20",
+      label: "20+ total prestige points"
+    });
+  }
+
+  if (stats.totalCrowns >= 10) {
+    conditions.push({
+      key: "crowns_10",
+      label: "10+ crowns"
+    });
+  }
+
+  if (stats.maxPoints >= 10) {
+    conditions.push({
+      key: "color_points_10",
+      label: `10+ prestige points in ${stats.maxColor}`
+    });
+  }
+
+  return { conditions, stats };
+};
+
+const getPlayerLabel = (playerId) => (playerId === "player1" ? "Player 1" : "Player 2");
 
 // --- Purchasing helpers ---
 const purchaseColors = ['blue', 'white', 'green', 'red', 'black'];
@@ -2768,6 +2886,131 @@ const generateResourceSummary = () => {
   `;
 };
 
+const finalizeGameOverState = (winnerId, conditions, stats) => {
+  if (isGameOver()) return;
+
+  gameState.gameOver = {
+    winnerId,
+    conditions: [...conditions],
+    winnerStats: {
+      totalPoints: stats.totalPoints,
+      totalCrowns: stats.totalCrowns,
+      maxColor: stats.maxColor,
+      maxPoints: stats.maxPoints
+    }
+  };
+};
+
+const openVictoryModal = () => {
+  const modal = document.getElementById("victory-modal");
+  if (modal) {
+    modal.style.display = "flex";
+  }
+  const gameContainer = document.querySelector(".game-container");
+  if (gameContainer) {
+    gameContainer.classList.add("dialog-blocking");
+  }
+};
+
+const closeVictoryModal = () => {
+  const modal = document.getElementById("victory-modal");
+  if (modal) {
+    modal.style.display = "none";
+  }
+  const gameContainer = document.querySelector(".game-container");
+  if (gameContainer) {
+    gameContainer.classList.remove("dialog-blocking");
+  }
+};
+
+const reopenVictoryModal = () => {
+  if (!isGameOver()) return;
+  openVictoryModal();
+};
+
+const getVictoryModalMarkup = () => {
+  if (!isGameOver()) {
+    return "";
+  }
+
+  const winnerId = gameState.gameOver.winnerId;
+  const winnerLabel = getPlayerLabel(winnerId);
+  const conditions = gameState.gameOver.conditions || [];
+  const winnerStats = gameState.gameOver.winnerStats || getPlayerVictoryStats(winnerId);
+  const restartLabel = syncContext.enabled ? "New Game (Same Session)" : "New Local Game";
+  const conditionItems = conditions.length
+    ? conditions.map(condition => `<li>${condition.label}</li>`).join("")
+    : "<li>Victory condition met.</li>";
+
+  return `
+    <div class="modal-overlay card-modal-overlay" id="victory-modal" style="display: flex;">
+      <div class="modal-content turn-completion-content">
+        <div class="turn-completion-message">
+          <h3>${winnerLabel} Wins!</h3>
+        </div>
+        <div style="text-align: left; margin: 4px 0 14px;">
+          <div style="font-weight: 700; margin-bottom: 6px;">Winning condition(s)</div>
+          <ul style="margin: 0; padding-left: 20px; line-height: 1.4;">
+            ${conditionItems}
+          </ul>
+        </div>
+        <div style="font-size: 0.92em; color: #555; margin-bottom: 12px;">
+          Final stats: ${winnerStats.totalPoints} points, ${winnerStats.totalCrowns} crowns, ${winnerStats.maxPoints}
+          points in ${winnerStats.maxColor}.
+        </div>
+        <div class="victory-actions">
+          <button class="action-button victory-primary-button" onclick="window.startNewGameFromGameOver()">${restartLabel}</button>
+          <button class="action-button cancel-button victory-secondary-button" id="close-victory-btn">Close</button>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+const startNewGameFromGameOver = async () => {
+  if (rematchInProgress) return;
+  rematchInProgress = true;
+
+  const isOnlineRematch = syncContext.enabled && !!syncContext.sessionId;
+  const previousAssignments = gameState.syncAssignments
+    ? { ...gameState.syncAssignments }
+    : { player1Id: null, player2Id: null };
+  const localPlayerId = syncContext.localPlayerId;
+
+  try {
+    initializeGame();
+    turnDialogMode = null;
+
+    if (isOnlineRematch) {
+      ensureSyncAssignmentsStructure();
+      gameState.syncAssignments.player1Id = previousAssignments.player1Id;
+      gameState.syncAssignments.player2Id = previousAssignments.player2Id;
+
+      if (localPlayerId) {
+        turnDisplayState.activePlayerId = localPlayerId;
+        turnDisplayState.opponentPlayerId = localPlayerId === "player1" ? "player2" : "player1";
+      }
+
+      renderGame();
+      await pushStateUpdate("rematch restart");
+      syncContext.syncStatus = "online";
+      maybeAdjustPollingCadence();
+      updateSyncUI();
+      return;
+    }
+
+    renderGame();
+    updateSyncUI();
+  } catch (error) {
+    console.error("Failed to start rematch:", error);
+    alert("Couldn't start a rematch cleanly. Please refresh and try again.");
+    syncContext.syncStatus = "degraded";
+    updateSyncUI();
+  } finally {
+    rematchInProgress = false;
+  }
+};
+
 const generateGameLayout = () => {
   const currentSessionId = syncContext.sessionId;
   const trimmedSessionId = trimSessionId(currentSessionId);
@@ -2877,6 +3120,8 @@ const generateGameLayout = () => {
               <button class="action-button switch-players-button" id="switch-players-btn">Switch Players</button>
             </div>
           </div>
+
+          ${getVictoryModalMarkup()}
 
           <!-- Repeat Turn Dialog -->
           <div class="modal-overlay card-modal-overlay" id="repeat-turn-dialog" style="display: none;">
@@ -3068,7 +3313,7 @@ const generateGameLayout = () => {
               <!-- Content populated dynamically -->
             </div>
           </div>
-          <div style="margin-top: 15px; text-align: center;">
+          <div class="settings-modal-footer">
             <button class="btn-cancel" onclick="window.closeSettings()" style="font-size: 12px; padding: 6px 12px;">Close</button>
           </div>
         </div>
@@ -3118,6 +3363,10 @@ const attachReservedSectionDelegation = () => {
 
 // Popover management functions
 const openPopover = (id, cardData = null, cardElement = null) => {
+  if (isGameOver() && id !== "victory-modal") {
+    return;
+  }
+
   const popover = document.getElementById(id);
   if (popover) {
     // Don't allow opening other modals if royal card selection is active
@@ -4730,6 +4979,8 @@ window.confirmRoyalCardSelection = confirmRoyalCardSelection;
 window.closeStealTokenModal = closeStealTokenModal;
 window.confirmStealToken = confirmStealToken;
 window.closeRepeatTurnModal = closeRepeatTurnModal;
+window.startNewGameFromGameOver = startNewGameFromGameOver;
+window.reopenVictoryModal = reopenVictoryModal;
 // Deprecated: payment now renders inline in the same modal
 
 // Close any open popover on escape key
@@ -4741,6 +4992,7 @@ document.addEventListener("keydown", (e) => {
       if (popover.id !== 'turn-completion-dialog' && 
           popover.id !== 'repeat-turn-dialog' && 
           popover.id !== 'token-discard-modal' &&
+          popover.id !== 'victory-modal' &&
           !(popover.id === 'royal-modal' && royalCardSelectionMode)) {
         popover.style.display = "none";
       }
@@ -4768,6 +5020,11 @@ const willExceedTokenLimit = (playerId, tokensToGain) => {
 // Turn switching system functions
 // Check if player has earned a royal card and show selection if needed
 const checkAndShowRoyalCardSelection = () => {
+  if (isGameOver()) {
+    openVictoryModal();
+    return;
+  }
+
   const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const stats = getPlayerVictoryStats(currentPlayerId);
   const currentCrowns = stats.totalCrowns;
@@ -4793,9 +5050,19 @@ const checkAndShowRoyalCardSelection = () => {
     // Show royal card selection modal
     showRoyalCardSelection();
   } else {
-    // Update previous count and show normal turn completion
+    // Update previous count and continue with end-of-turn checks.
     previousCrownCounts[currentPlayerId] = currentCrowns;
-    const dialogMode = syncContext.enabled ? 'online_end' : 'local_end';
+    const { conditions } = getVictoryConditions(currentPlayerId);
+    if (conditions.length > 0) {
+      finalizeGameOverState(currentPlayerId, conditions, stats);
+      finalizePendingTurn("victory");
+      syncAfterTurn();
+      renderGame();
+      openVictoryModal();
+      return;
+    }
+
+    const dialogMode = syncContext.enabled ? "online_end" : "local_end";
     showTurnCompletionDialog(dialogMode);
   }
 };
@@ -5385,6 +5652,18 @@ const renderGame = () => {
       switchBtn.addEventListener('click', switchBtn._clickHandler);
       switchBtn._handlerAttached = true;
     }
+    const closeVictoryBtn = document.getElementById("close-victory-btn");
+    if (closeVictoryBtn) {
+      if (closeVictoryBtn._handlerAttached) {
+        closeVictoryBtn.removeEventListener("click", closeVictoryBtn._clickHandler);
+      }
+      closeVictoryBtn._clickHandler = closeVictoryModal;
+      closeVictoryBtn.addEventListener("click", closeVictoryBtn._clickHandler);
+      closeVictoryBtn._handlerAttached = true;
+    }
+    if (isGameOver()) {
+      openVictoryModal();
+    }
     // Update sync UI after render
     updateSyncUI();
   }, 10);
@@ -5394,14 +5673,15 @@ const renderGame = () => {
 let consecutivePollFailures = 0;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
-const startPolling = () => {
+const startPolling = (forcedIntervalMs = null) => {
   if (!syncContext.enabled || !syncContext.sessionId) {
     return;
   }
+  const pollIntervalMs = forcedIntervalMs || getDesiredPollIntervalMs() || POLL_INTERVAL_VISIBLE_WAITING_MS;
   
   consecutivePollFailures = 0;
   
-  gameSyncClient.startPolling(2000, (session, error) => {
+  gameSyncClient.startPolling(pollIntervalMs, (session, error) => {
     if (error) {
       console.error('Poll error:', error);
       
@@ -5411,6 +5691,7 @@ const startPolling = () => {
         stopPolling();
         syncContext.enabled = false;
         syncContext.syncStatus = 'offline';
+        syncContext.pollIntervalMs = null;
         updateSyncUI();
         return;
       }
@@ -5454,22 +5735,27 @@ const startPolling = () => {
       updateSyncUI();
       
       if (!wasLocalTurn && nowLocalTurn) {
+        notifyTurnReady();
         showTurnCompletionDialog('online_start');
       }
+      maybeAdjustPollingCadence();
     } else if (session) {
       // Session loaded but version hasn't changed - still mark as online
       syncContext.syncStatus = 'online';
       updateSyncUI();
+      maybeAdjustPollingCadence();
     }
   });
   
   syncContext.pollTimerId = gameSyncClient.pollTimerId;
+  syncContext.pollIntervalMs = pollIntervalMs;
 };
 
 // Helper function to stop polling
 const stopPolling = () => {
   gameSyncClient.stopPolling();
   syncContext.pollTimerId = null;
+  syncContext.pollIntervalMs = null;
 };
 
 // Sync after turn completion
@@ -5551,9 +5837,24 @@ const updateSyncUI = () => {
   
   // Turn indicator
   if (turnIndicator) {
-    turnIndicator.classList.remove("active", "waiting");
+    turnIndicator.classList.remove("active", "waiting", "game-over");
+    turnIndicator.onclick = null;
+    turnIndicator.style.cursor = "default";
+    turnIndicator.title = "";
     if (!syncContext.enabled || !syncContext.localPlayerId) {
-      turnIndicator.textContent = "";
+      turnIndicator.textContent = isGameOver() ? "GAME OVER" : "";
+      if (isGameOver()) {
+        turnIndicator.classList.add("game-over");
+        turnIndicator.onclick = reopenVictoryModal;
+        turnIndicator.style.cursor = "pointer";
+        turnIndicator.title = "Open game over options";
+      }
+    } else if (isGameOver()) {
+      turnIndicator.textContent = "GAME OVER";
+      turnIndicator.classList.add("game-over");
+      turnIndicator.onclick = reopenVictoryModal;
+      turnIndicator.style.cursor = "pointer";
+      turnIndicator.title = "Open game over options";
     } else if (isLocalPlayersTurn()) {
       turnIndicator.textContent = "Your turn";
       turnIndicator.classList.add("active");
@@ -5719,7 +6020,35 @@ const maybeShowPendingTurnDialog = () => {
   if (!syncContext.enabled || !syncContext.localPlayerId) return;
   if (!isLocalPlayersTurn()) return;
   if (!hasUnseenOpponentTurn()) return;
+  notifyTurnReady();
   setTimeout(() => showTurnCompletionDialog('online_start'), 50);
+};
+
+const POLL_INTERVAL_VISIBLE_WAITING_MS = 2500;
+const POLL_INTERVAL_VISIBLE_MY_TURN_MS = 6000;
+const POLL_INTERVAL_HIDDEN_MS = 15000;
+
+const getDesiredPollIntervalMs = () => {
+  if (!syncContext.enabled || !syncContext.sessionId) {
+    return null;
+  }
+  if (document.hidden) {
+    return POLL_INTERVAL_HIDDEN_MS;
+  }
+  return isLocalPlayersTurn() ? POLL_INTERVAL_VISIBLE_MY_TURN_MS : POLL_INTERVAL_VISIBLE_WAITING_MS;
+};
+
+const refreshPowerModeClass = () => {
+  const root = document.documentElement;
+  if (!root) return;
+  root.classList.toggle("tab-inactive", document.hidden);
+};
+
+const maybeAdjustPollingCadence = () => {
+  const desiredMs = getDesiredPollIntervalMs();
+  if (!desiredMs) return;
+  if (syncContext.pollIntervalMs === desiredMs) return;
+  startPolling(desiredMs);
 };
 
 // UI handler functions (exposed to window for onclick handlers)
@@ -5757,6 +6086,8 @@ window.selectLocalMode = () => {
 
 window.hostOnlineGame = async () => {
   try {
+    requestTurnNotificationPermission();
+
     // Use the current game state (don't re-initialize - user may have already started playing)
     // If game hasn't been initialized yet, initialize it now
     if (allCards.length === 0) {
@@ -5870,6 +6201,8 @@ window.confirmJoinGame = async () => {
     alert('Please enter a valid session ID');
     return;
   }
+
+  requestTurnNotificationPermission();
   
   const joined = await joinSession(normalizedId, 'p2');
   
@@ -5899,15 +6232,19 @@ window.showSettings = () => {
   
   if (syncContext.enabled && syncContext.sessionId) {
     html += `
-      <div style="margin-bottom: 15px;">
+      <div class="settings-copy-group">
         <p><strong>Session ID:</strong></p>
-        <div class="session-id-display">${trimmedSessionId}</div>
-        <button class="action-button" onclick="window.copySessionId()" style="margin-top: 5px; font-size: 12px;">Copy Session ID</button>
+        <div class="settings-copy-row">
+          <div class="session-id-display">${trimmedSessionId}</div>
+          <button class="inline-copy-btn" onclick="window.copySessionId()" title="Copy Session ID" aria-label="Copy Session ID">📋</button>
+        </div>
       </div>
-      <div style="margin-bottom: 15px;">
+      <div class="settings-copy-group">
         <p><strong>Share Link:</strong></p>
-        <div class="session-link-display" id="share-link-display">${shareUrl}</div>
-        <button class="action-button" onclick="window.copyShareLink()" style="margin-top: 5px; font-size: 12px;">Copy Link</button>
+        <div class="settings-copy-row">
+          <div class="session-link-display" id="share-link-display">${shareUrl}</div>
+          <button class="inline-copy-btn" onclick="window.copyShareLink()" title="Copy Share Link" aria-label="Copy Share Link">📋</button>
+        </div>
         <div class="qr-wrapper">
           <img id="settings-qr-image" src="${shareQrSrc || ''}" alt="Share QR code" style="${shareQrSrc ? '' : 'display:none;'}" />
         </div>
@@ -5920,6 +6257,27 @@ window.showSettings = () => {
     } else {
       html += '<p style="font-size: 12px; color: #666;">Online sync is not available.</p>';
     }
+  }
+
+  html += `
+    <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">
+      <p><strong>Turn notifications:</strong> ${getTurnNotificationStatusLabel()}</p>
+      <button class="action-button" onclick="window.enableTurnNotifications()" style="margin-top: 5px; font-size: 12px;">
+        Enable Turn Notifications
+      </button>
+    </div>
+  `;
+
+  if (isGameOver()) {
+    const restartLabel = syncContext.enabled ? "Start New Game (Same Session)" : "Start New Local Game";
+    html += `
+      <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">
+        <p><strong>Post-game:</strong></p>
+        <button class="action-button" onclick="window.closeSettings(); window.startNewGameFromGameOver();" style="margin-top: 5px; font-size: 12px;">
+          ${restartLabel}
+        </button>
+      </div>
+    `;
   }
   
   content.innerHTML = html;
@@ -5977,6 +6335,20 @@ window.copyShareLink = () => {
       alert('Failed to copy link.');
     });
   }
+};
+
+window.enableTurnNotifications = async () => {
+  const result = await requestTurnNotificationPermission();
+  if (result === "granted") {
+    alert("Turn notifications enabled.");
+  } else if (result === "denied") {
+    alert("Notifications are blocked. Enable them in browser site settings.");
+  } else if (result === "unsupported") {
+    alert("This browser does not support notifications.");
+  } else {
+    alert("Notification permission is still not enabled.");
+  }
+  window.closeSettings();
 };
 
 window.copySessionInfo = () => {
@@ -6106,6 +6478,7 @@ const joinSession = async (sessionId, role = null) => {
     console.log('Joined session as:', assignedPlayerId, 'View shows:', turnDisplayState.activePlayerId, 'Current player in game:', gameState.currentPlayer);
     
     maybeShowPendingTurnDialog();
+    requestTurnNotificationPermission();
     return true;
   } catch (error) {
     console.error('Failed to join session:', error);
@@ -6130,6 +6503,8 @@ const joinSession = async (sessionId, role = null) => {
 
 // Initialize the game
 const init = async () => {
+  refreshPowerModeClass();
+
   // Parse URL parameters first
   const urlParams = new URLSearchParams(window.location.search);
   const sessionParamRaw = urlParams.get('session');
@@ -6223,6 +6598,11 @@ const init = async () => {
   
   renderGame();
 };
+
+document.addEventListener("visibilitychange", () => {
+  refreshPowerModeClass();
+  maybeAdjustPollingCadence();
+});
 
 init();
 

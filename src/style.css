@@ -109,6 +109,74 @@ body {
   font-family: monospace;
 }
 
+#settings-modal .turn-completion-content {
+  max-height: 78vh;
+}
+
+#settings-modal .turn-completion-message {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin-bottom: 10px;
+}
+
+#settings-content {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.settings-modal-footer {
+  margin-top: 0;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.settings-copy-group {
+  margin-bottom: 12px;
+}
+
+.settings-copy-group p {
+  margin: 0 0 4px;
+}
+
+.settings-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-copy-row .session-id-display,
+.settings-copy-row .session-link-display {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+}
+
+.inline-copy-btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #f8f8f8;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.inline-copy-btn:hover {
+  background: #ececec;
+  border-color: #bbb;
+}
+
 .qr-wrapper {
   display: flex;
   justify-content: center;
@@ -137,6 +205,12 @@ body {
 
 .sync-turn-indicator.waiting {
   color: #ff9800;
+}
+
+.sync-turn-indicator.game-over {
+  color: #d32f2f;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .sync-turn-warning {
@@ -3317,6 +3391,28 @@ button.action-trigger {
   animation: affordablePulse 2s ease-in-out infinite;
 }
 
+/* Battery saver: pause expensive glow animations while tab is backgrounded */
+html.tab-inactive .card-v2.affordable,
+html.tab-inactive .reserved-section.reserved-affordable {
+  animation: none;
+  box-shadow:
+    0 0 6px rgba(0, 217, 255, 0.55),
+    0 0 12px rgba(0, 217, 255, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Mobile/touch: keep highlight but avoid continuous pulse animation */
+@media (hover: none), (pointer: coarse) {
+  .card-v2.affordable,
+  .reserved-section.reserved-affordable {
+    animation: none;
+    box-shadow:
+      0 0 8px rgba(0, 217, 255, 0.65),
+      0 0 16px rgba(0, 217, 255, 0.45),
+      0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+}
+
 .reserved-icon {
   font-size: 1.5em;
   margin-bottom: 4px;
@@ -4459,6 +4555,23 @@ button.action-trigger {
   transform: translateY(0);
 }
 
+#victory-modal .turn-completion-content {
+  overflow-y: auto;
+}
+
+.victory-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.victory-primary-button,
+.victory-secondary-button {
+  width: 100%;
+  margin-top: 0;
+}
+
 /* Transition effects for player switching */
 #player-hand.switching,
 #opponent-stats.switching,
@@ -4650,4 +4763,3 @@ button.action-trigger {
 .discard-pending-message span {
   display: block;
 }
-
