@@ -1,6 +1,7 @@
 import "./style.css";
 import cardsCsv from "./splendor_cards.csv?raw";
 import { buildPushMeta } from "./push-meta.js";
+import { nativePushAvailable, nativePush } from "./native-push.js";
 import {
   awardPrivilege,
   consumeExtraTurn,
@@ -6713,6 +6714,68 @@ window.confirmJoinGame = async () => {
   }
 };
 
+const nativePushErrorLabel = (error) => {
+  if (error === 'denied') return 'iOS notifications are blocked for this app';
+  if (error === 'timeout' || error === 'server') return 'Could not reach the server, try again';
+  if (error === 'disabled') return 'Push is not available yet';
+  return 'Push is unavailable';
+};
+
+const setupNativePushSettings = () => {
+  const modal = document.getElementById('settings-modal');
+  const statusLine = document.getElementById('native-push-status');
+  const button = document.getElementById('native-push-button');
+  const errorLine = document.getElementById('native-push-error');
+  const mute = document.getElementById('native-push-mute');
+  const sessionId = syncContext.sessionId;
+  let action = 'enable';
+  let muted = false;
+  const isOpen = () => modal?.isConnected && modal.style.display !== 'none'
+    && document.getElementById('native-push-status') === statusLine;
+
+  const refreshStatus = async () => {
+    const status = await nativePush('status', { actor_id: clientId });
+    if (!isOpen()) return;
+    if (status.ok === false) {
+      statusLine.textContent = nativePushErrorLabel(status.error);
+      button.hidden = true;
+      return;
+    }
+    const on = status.registered && ['authorized', 'provisional', 'ephemeral'].includes(status.permission);
+    const denied = status.permission === 'denied';
+    statusLine.textContent = on ? 'Push is on'
+      : denied ? 'Blocked in iOS Settings > Notifications' : 'Push is off';
+    action = on ? 'disable' : 'enable';
+    button.textContent = on ? 'Turn off' : 'Turn on push';
+    button.hidden = denied;
+  };
+
+  const runAction = async (type, fields) => {
+    button.disabled = true;
+    if (mute) mute.disabled = true;
+    errorLine.textContent = '';
+    const result = await nativePush(type, { actor_id: clientId, ...fields });
+    if (!isOpen()) return;
+    if (result.ok !== true) errorLine.textContent = nativePushErrorLabel(result.error);
+    if (type === 'mute') {
+      if (result.ok === true) muted = fields.muted;
+      mute.checked = muted;
+    }
+    await refreshStatus();
+    if (!isOpen()) return;
+    button.disabled = false;
+    if (mute) mute.disabled = false;
+  };
+
+  button.addEventListener('click', () => runAction(action, {}));
+  if (mute) {
+    mute.addEventListener('change', () => runAction('mute', {
+      game_type: 'splendor_duel', session_id: sessionId, muted: mute.checked
+    }));
+  }
+  void refreshStatus();
+};
+
 window.showSettings = () => {
   const modal = document.getElementById('settings-modal');
   const content = document.getElementById('settings-content');
@@ -6754,6 +6817,21 @@ window.showSettings = () => {
     }
   }
 
+  const useNativePush = nativePushAvailable();
+  if (useNativePush) {
+    const canMute = syncContext.enabled && typeof syncContext.sessionId === 'string'
+      && /^[A-Za-z0-9_-]{1,64}$/.test(syncContext.sessionId);
+    html += `
+      <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">
+        <p><strong>Turn notifications:</strong></p>
+        <p>Get a push when it's your turn, even with the app closed.</p>
+        <p id="native-push-status" role="status">Checking...</p>
+        <button id="native-push-button" class="action-button" hidden style="margin-top: 5px; font-size: 12px;">Turn on push</button>
+        ${canMute ? '<p><label><input id="native-push-mute" type="checkbox"> Mute this game</label></p>' : ''}
+        <p id="native-push-error" role="status"></p>
+      </div>
+    `;
+  } else {
   html += `
     <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">
       <p><strong>Turn notifications:</strong> ${getTurnNotificationStatusLabel()}</p>
@@ -6762,6 +6840,7 @@ window.showSettings = () => {
       </button>
     </div>
   `;
+  }
 
   if (isGameOver()) {
     const restartLabel = syncContext.enabled ? "Start New Game (Same Session)" : "Start New Local Game";
@@ -6779,6 +6858,7 @@ window.showSettings = () => {
   content.innerHTML = html;
   modal.style.display = 'flex';
   modal.style.pointerEvents = 'auto';
+  if (useNativePush) setupNativePushSettings();
   const gameContainer = document.querySelector('.game-container');
   if (gameContainer) {
     gameContainer.classList.add('dialog-blocking');
