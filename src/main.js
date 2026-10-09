@@ -1,5 +1,6 @@
 import "./style.css";
 import cardsCsv from "./splendor_cards.csv?raw";
+import { buildPushMeta } from "./push-meta.js";
 import {
   awardPrivilege,
   consumeExtraTurn,
@@ -436,6 +437,7 @@ class GameSyncClient {
       };
     }
 
+    const pushMeta = meta ?? buildPushMeta(stateBlob);
     let attempts = 0;
     let currentVersion = this.version;
 
@@ -448,9 +450,7 @@ class GameSyncClient {
           version: currentVersion
         };
         
-        // Include meta if provided (GameSync API doesn't support meta in update, but we'll try)
-        // Actually, looking at the API, update doesn't support meta changes, so we'll skip this
-        // The meta update would need to happen via a separate mechanism or we accept the limitation
+        if (pushMeta !== null) body.meta = pushMeta;
         
         const response = await fetch(`${this.baseUrl}?action=update`, {
           method: 'POST',
