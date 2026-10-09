@@ -85,3 +85,27 @@ test("extra keys in the blob are ignored", () => {
   blob.gameState.gameOver.extra = true;
   assert.deepEqual(buildPushMeta(JSON.stringify(blob)), expectedMeta());
 });
+
+// Mirrors GameSync push_detect_turn (push/push_lib.php): a turn is detected only against a previous
+// summary that has a valid status and an active_seat key; entering "active" or changing seat fires.
+const detectTurn = (previous, next) => {
+  const target = next?.summary && next.actor_ids ? next.summary.players.find((p) => p.seat === next.summary.active_seat) : null;
+  const old = previous?.summary;
+  if (!target || !old || !["lobby", "active", "finished"].includes(old.status) || !("active_seat" in old)) return null;
+  return old.status !== "active" || old.active_seat !== target.seat ? target : null;
+};
+
+test("lobby meta at creation lets the first active update fire a push", async () => {
+  const { buildLobbyMeta } = await import("../src/push-meta.js");
+  const lobby = buildLobbyMeta();
+  assert.deepEqual(lobby.summary, { status: "lobby", active_seat: null, players: [] });
+  assert.equal(lobby.player1_assigned, true);
+  assert.equal(lobby.player2_assigned, false);
+  const active = buildPushMeta(createBlob());
+  assert.ok(detectTurn(lobby, active), "first active update after lobby should notify the active seat");
+});
+
+test("old-style creation meta (no summary) cannot fire the first push", () => {
+  const active = buildPushMeta(createBlob());
+  assert.equal(detectTurn({ player1_assigned: true, player2_assigned: false }, active), null);
+});

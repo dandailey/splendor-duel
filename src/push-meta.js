@@ -26,3 +26,12 @@ export const buildPushMeta = (stateBlobString) => {
     return null;
   }
 };
+
+// Meta written when a game is created: no seats are active yet. The push worker only detects a turn
+// change against a previous summary with a status and an active_seat key, so without this the first
+// "your turn" after the opponent joins would be silently dropped.
+export const buildLobbyMeta = () => ({
+  player1_assigned: true,
+  player2_assigned: false,
+  summary: { status: "lobby", active_seat: null, players: [] }
+});

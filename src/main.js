@@ -1,6 +1,6 @@
 import "./style.css";
 import cardsCsv from "./splendor_cards.csv?raw";
-import { buildPushMeta } from "./push-meta.js";
+import { buildPushMeta, buildLobbyMeta } from "./push-meta.js";
 import { nativePushAvailable, nativePush } from "./native-push.js";
 import {
   awardPrivilege,
@@ -6598,10 +6598,7 @@ window.hostOnlineGame = async () => {
     
     const stateBlob = encodeSyncState();
     // Track player assignments in meta
-    const meta = {
-      player1_assigned: true,
-      player2_assigned: false
-    };
+    const meta = buildLobbyMeta();
     const session = await gameSyncClient.createSession(stateBlob, meta);
     
     syncContext.enabled = true;
