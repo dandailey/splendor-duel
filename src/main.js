@@ -1,5 +1,14 @@
 import "./style.css";
 import cardsCsv from "./splendor_cards.csv?raw";
+import {
+  awardPrivilege,
+  consumeExtraTurn,
+  createTurnState,
+  getOpponentTurnsSinceLastLocalTurn,
+  queueExtraTurn,
+  resetGamePieces,
+  spendPrivilege
+} from "./game-rules.js";
 
 let allCards = [];
 let pyramidCards = { level1: [], level2: [], level3: [] };
@@ -66,6 +75,7 @@ const gameState = {
     }
   },
   currentPlayer: 1,
+  turnState: createTurnState("player1"),
   gameOver: {
     winnerId: null,
     conditions: [],
@@ -95,10 +105,36 @@ let turnHistoryState = initTurnHistoryState();
 
 const resetTurnHistoryState = () => {
   turnHistoryState = initTurnHistoryState();
-  syncContext.lastSeenTurnId = null;
+  clearTurnSeenAcknowledgement();
 };
 
 const getCurrentPlayerId = () => (gameState.currentPlayer === 1 ? 'player1' : 'player2');
+const resetCurrentTurnState = () => {
+  gameState.turnState = createTurnState(getCurrentPlayerId());
+  turnCheckpointCommitted = false;
+  turnCheckpointPromise = null;
+};
+
+const ensureCurrentTurnState = () => {
+  if (!gameState.turnState || gameState.turnState.playerId !== getCurrentPlayerId()) {
+    resetCurrentTurnState();
+  }
+  if (typeof gameState.turnState.boardRefilled !== "boolean") {
+    gameState.turnState.boardRefilled = false;
+  }
+  if (typeof gameState.turnState.actionCompleted !== "boolean") {
+    gameState.turnState.actionCompleted = false;
+  }
+  if (!Number.isInteger(gameState.turnState.extraTurnsPending) || gameState.turnState.extraTurnsPending < 0) {
+    gameState.turnState.extraTurnsPending = 0;
+  }
+  if (typeof gameState.turnState.isExtraTurn !== "boolean") {
+    gameState.turnState.isExtraTurn = false;
+  }
+  return gameState.turnState;
+};
+
+const hasRefilledBoardThisTurn = () => ensureCurrentTurnState().boardRefilled;
 const getViewedPlayerId = () => {
   if (turnDisplayState.activePlayerId) {
     return turnDisplayState.activePlayerId;
@@ -177,6 +213,9 @@ const finalizePendingTurn = (status = 'completed') => {
 
 let turnDialogMode = null;
 let turnGuardCustomMessage = "";
+let turnCheckpointCommitted = false;
+let turnCheckpointPromise = null;
+let turnHandoffInProgress = false;
 
 // Track previous crown counts to detect threshold crossings
 const previousCrownCounts = {
@@ -193,7 +232,7 @@ let rematchInProgress = false;
 let bonusTokenMode = false;
 let bonusTokenRequiredColor = null;
 let stealTokenMode = false;
-let repeatTurnActive = false;
+let selectedStealColor = null;
 
 // Token discard state
 let tokensToDiscard = [];
@@ -243,7 +282,53 @@ const syncContext = {
   pollTimerId: null,
   pollIntervalMs: null,
   syncStatus: 'offline', // 'offline', 'online', 'degraded'
-  lastSeenTurnId: null
+  lastSeenTurnId: null,
+  lastSeenTurnStorageKey: null
+};
+
+const TURN_SEEN_STORAGE_PREFIX = "splendor_duel_seen_opponent_turn";
+
+const getTurnSeenStorageKey = () => {
+  if (!syncContext.sessionId || !syncContext.localPlayerId) return null;
+  return `${TURN_SEEN_STORAGE_PREFIX}:${syncContext.sessionId}:${syncContext.localPlayerId}`;
+};
+
+const loadTurnSeenAcknowledgement = () => {
+  const storageKey = getTurnSeenStorageKey();
+  if (!storageKey || syncContext.lastSeenTurnStorageKey === storageKey) return;
+
+  syncContext.lastSeenTurnStorageKey = storageKey;
+  try {
+    syncContext.lastSeenTurnId = window.localStorage.getItem(storageKey);
+  } catch (error) {
+    console.warn("Unable to load opponent-turn acknowledgement:", error);
+    syncContext.lastSeenTurnId = null;
+  }
+};
+
+const saveTurnSeenAcknowledgement = () => {
+  const storageKey = getTurnSeenStorageKey();
+  if (!storageKey || !syncContext.lastSeenTurnId) return;
+
+  syncContext.lastSeenTurnStorageKey = storageKey;
+  try {
+    window.localStorage.setItem(storageKey, syncContext.lastSeenTurnId);
+  } catch (error) {
+    console.warn("Unable to save opponent-turn acknowledgement:", error);
+  }
+};
+
+const clearTurnSeenAcknowledgement = () => {
+  const storageKey = getTurnSeenStorageKey() || syncContext.lastSeenTurnStorageKey;
+  if (storageKey) {
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch (error) {
+      console.warn("Unable to clear opponent-turn acknowledgement:", error);
+    }
+  }
+  syncContext.lastSeenTurnId = null;
+  syncContext.lastSeenTurnStorageKey = null;
 };
 
 // GameSync client abstraction
@@ -378,19 +463,12 @@ class GameSyncClient {
         if (response.status === 409) {
           const conflict = await response.json();
           this.version = conflict.current.version;
-          currentVersion = conflict.current.version;
-          attempts++;
-
-          if (attempts >= maxRetries) {
-            throw {
-              type: 'version_conflict',
-              status: 409,
-              message: 'Version conflict: max retries reached',
-              current: conflict.current
-            };
-          }
-
-          continue;
+          throw {
+            type: 'version_conflict',
+            status: 409,
+            message: 'Version conflict: remote state changed',
+            current: conflict.current
+          };
         }
 
         if (!response.ok) {
@@ -515,7 +593,14 @@ const loadCards = () => {
   }
 };
 
-const shuffle = (array) => [...array].sort(() => Math.random() - 0.5);
+const shuffle = (array) => {
+  const shuffled = [...array];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+};
 
 const initializeDecks = () => {
   // Separate loaded cards by level
@@ -642,26 +727,13 @@ const placeTokensOnBoard = () => {
 
 // Scroll mechanics
 const awardScroll = (playerId) => {
-  // If scrolls are available in the pool, give one to the player
-  if (gameState.scrollPool > 0) {
-    gameState.scrollPool--;
-    gameState.players[playerId].privileges = (gameState.players[playerId].privileges || 0) + 1;
-  } else {
-    // No scrolls left - steal from the other player
-    const otherPlayerId = playerId === 'player1' ? 'player2' : 'player1';
-    const otherPlayer = gameState.players[otherPlayerId];
-    
-    if (otherPlayer.privileges > 0) {
-      otherPlayer.privileges--;
-      gameState.players[playerId].privileges = (gameState.players[playerId].privileges || 0) + 1;
-    } else {
-      // Other player has no scrolls either - still award (edge case)
-      gameState.players[playerId].privileges = (gameState.players[playerId].privileges || 0) + 1;
-    }
-  }
+  return awardPrivilege(gameState, playerId);
 };
 
 const initializeGame = () => {
+  resetGamePieces(gameState);
+  resetTransientActionState();
+
   // Load cards from inlined CSV
   loadCards();
   
@@ -673,6 +745,7 @@ const initializeGame = () => {
   
   // Randomly choose first player (non-first player gets a scroll)
   gameState.currentPlayer = Math.random() < 0.5 ? 1 : 2;
+  resetCurrentTurnState();
   const nonFirstPlayerId = gameState.currentPlayer === 1 ? 'player2' : 'player1';
   awardScroll(nonFirstPlayerId);
   
@@ -773,6 +846,8 @@ const applySyncedState = (rawBlob) => {
     }
     
     ensureSyncAssignmentsStructure();
+    ensureCurrentTurnState();
+    turnCheckpointCommitted = Boolean(gameState.turnState.actionCompleted);
     if (!gameState.gameOver || typeof gameState.gameOver !== "object") {
       gameState.gameOver = {
         winnerId: null,
@@ -852,11 +927,20 @@ const ensureLocalTurn = (reason = "This action is only available on your turn.")
     console.warn("Action blocked: game is already over.");
     return false;
   }
-  if (!isOnlineOpponentTurn()) {
-    return true;
+  if (isOnlineOpponentTurn()) {
+    showTurnBlockedNotice(reason);
+    return false;
   }
-  showTurnBlockedNotice(reason);
-  return false;
+  if (syncContext.enabled && ensureCurrentTurnState().actionCompleted) {
+    showTurnBlockedNotice("This turn is complete. Finish the handoff before taking another action.");
+    if (ensureCurrentTurnState().extraTurnsPending > 0) {
+      showRepeatTurnModal();
+    } else {
+      showTurnCompletionDialog("online_end");
+    }
+    return false;
+  }
+  return true;
 };
 
 const isGameOver = () => Boolean(gameState.gameOver && gameState.gameOver.winnerId);
@@ -952,6 +1036,7 @@ const advanceToNextPlayerOnline = () => {
   if (!syncContext.enabled || !syncContext.localPlayerId) return;
   const nextPlayerNumeric = syncContext.localPlayerId === "player1" ? 2 : 1;
   gameState.currentPlayer = nextPlayerNumeric;
+  resetCurrentTurnState();
 };
 
 const pushStateUpdate = async (reason = "state update") => {
@@ -972,6 +1057,27 @@ const pushStateUpdate = async (reason = "state update") => {
   } catch (error) {
     console.error(`Failed to push state (${reason})`, error);
     throw error;
+  }
+};
+
+const commitOnlineCheckpoint = async (reason, rollbackState) => {
+  if (!syncContext.enabled) return true;
+
+  try {
+    await pushStateUpdate(reason);
+    syncContext.syncStatus = "online";
+    return true;
+  } catch (error) {
+    if (error.current) {
+      syncContext.version = error.current.version;
+      gameSyncClient.version = error.current.version;
+      applySyncedState(error.current.state_blob);
+    } else if (rollbackState) {
+      applySyncedState(rollbackState);
+    }
+    syncContext.syncStatus = "degraded";
+    updateSyncUI();
+    return false;
   }
 };
 
@@ -1670,6 +1776,7 @@ const getPlayerCards = (playerId) => {
     wild: 0
   };
   const points = { blue: 0, white: 0, green: 0, black: 0, red: 0, wild: 0 };
+  const cardCounts = { blue: 0, white: 0, green: 0, black: 0, red: 0 };
   const wildStacks = { blue: false, white: false, green: false, black: false, red: false };
   const lastCardByColor = { blue: null, white: null, green: null, black: null, red: null };
   
@@ -1682,10 +1789,12 @@ const getPlayerCards = (playerId) => {
       // Wild card belongs to a specific color stack
       const stackColor = card.wildColorStack;
       cards[stackColor] = (cards[stackColor] || 0) + cardValue;
+      cardCounts[stackColor] += 1;
       points[stackColor] = (points[stackColor] || 0) + card.points;
       lastCardByColor[stackColor] = card; // Track last card in this stack
     } else if (card.color && card.color !== 'none' && card.color !== 'wild') {
       cards[card.color] = (cards[card.color] || 0) + cardValue;
+      cardCounts[card.color] += 1;
       points[card.color] = (points[card.color] || 0) + card.points;
       lastCardByColor[card.color] = card; // Track last card in this stack
     }
@@ -1699,7 +1808,7 @@ const getPlayerCards = (playerId) => {
     }
   });
   
-  return { cards, points, wildStacks };
+  return { cards, points, cardCounts, wildStacks };
 };
 
 // Get "misc" cards for a player (grey point-only cards and royal cards)
@@ -1885,13 +1994,9 @@ const computePaymentPlanWithGold = (card, playerId, goldAssignments = []) => {
   // This lets users choose gold over tokens even when they have enough tokens/cards
   Object.keys(assigned).forEach(kind => {
     if (assigned[kind] > 0 && totalCosts[kind] > 0) {
-      // Use gold for this kind - use the assigned amount, up to what's needed
-      // If need is already 0 (covered by cards), still allow using 1 gold if assigned
-      // (user explicitly chose to use gold)
+      // Use gold for this kind only when the discounted cost still requires payment.
       const currentNeed = needs[kind] || 0;
-      const goldToUse = currentNeed > 0 
-        ? Math.min(assigned[kind], currentNeed)
-        : Math.min(assigned[kind], 1); // Allow using 1 gold even if need is 0
+      const goldToUse = Math.min(assigned[kind], currentNeed);
       if (goldToUse > 0) {
         needs[kind] = Math.max(0, currentNeed - goldToUse);
         spend.gold += goldToUse;
@@ -2030,10 +2135,9 @@ const renderPaymentContent = () => {
   });
   const pearlRemaining = Math.max(0, (costs.pearl || 0) - (player.tokens.pearl || 0));
   
-  // Show ALL colors with costs as options for gold tokens (not just those with deficits)
-  // This allows using gold even when you have enough cards/tokens
+  // Gold may replace a matching token, but cannot overpay a cost already covered by card bonuses.
   const kindsWithCosts = [
-    ...purchaseColors.filter(c => (costs[c] || 0) > 0),
+    ...purchaseColors.filter(c => Math.max(0, (costs[c] || 0) - (cards[c] || 0)) > 0),
     ...((costs.pearl || 0) > 0 ? ['pearl'] : [])
   ];
   
@@ -2181,9 +2285,8 @@ const processCardAbilities = (card, playerId) => {
   // Check for repeat turn ability (again)
   if (card.ability === 'again') {
     logTurnEvent('repeat_turn_awarded', { card: summarizeCard(card) });
-    repeatTurnActive = true;
-    // Show repeat turn modal
-    showRepeatTurnModal();
+    queueExtraTurn(ensureCurrentTurnState());
+    checkAndShowRoyalCardSelection();
     return;
   }
   
@@ -2227,19 +2330,31 @@ const processCardAbilities = (card, playerId) => {
       return;
     }
   }
+
+  // Check for privilege/scroll ability
+  if (card.ability === 'scroll') {
+    const scrollAwarded = awardScroll(currentPlayer);
+    logTurnEvent(scrollAwarded ? 'scroll_gained' : 'scroll_unavailable', {
+      card: summarizeCard(card)
+    });
+  }
   
   // No special abilities or abilities already processed
-  // Show normal turn completion
-  if (!repeatTurnActive) {
-    checkAndShowRoyalCardSelection();
-  }
+  checkAndShowRoyalCardSelection();
 };
 
 // Show repeat turn modal
 const showRepeatTurnModal = () => {
   const dialog = document.getElementById('repeat-turn-dialog');
   if (!dialog) return;
-  
+
+  const turnState = ensureCurrentTurnState();
+  if (turnState.extraTurnsPending <= 0) return;
+  if (!turnState.actionCompleted) {
+    turnState.actionCompleted = true;
+    turnCheckpointCommitted = false;
+  }
+
   // Add class to game container to block interactions
   const gameContainer = document.querySelector('.game-container');
   if (gameContainer) {
@@ -2247,11 +2362,45 @@ const showRepeatTurnModal = () => {
   }
   
   dialog.style.display = 'flex';
-  
+  dialog.classList.toggle("checkpoint-pending", syncContext.enabled && !turnCheckpointCommitted);
+
   clearTurnSummarySection();
+
+  const button = document.getElementById("repeat-turn-btn");
+  if (button) {
+    button.disabled = syncContext.enabled && !turnCheckpointCommitted;
+    button.textContent = turnCheckpointCommitted || !syncContext.enabled ? "Start Extra Turn" : "Saving turn...";
+  }
+
+  if (syncContext.enabled && !turnCheckpointCommitted) {
+    persistCompletedTurnCheckpoint("repeat-turn-btn", "Start Extra Turn");
+  }
 };
 
-const closeRepeatTurnModal = () => {
+const closeRepeatTurnModal = async () => {
+  if (syncContext.enabled && !(await persistCompletedTurnCheckpoint("repeat-turn-btn", "Start Extra Turn"))) {
+    return;
+  }
+
+  const completedTurnState = ensureCurrentTurnState();
+  const nextTurnState = consumeExtraTurn(completedTurnState);
+  if (!nextTurnState) return;
+
+  const rollbackState = syncContext.enabled ? encodeSyncState() : null;
+  finalizePendingTurn("extra_turn");
+  gameState.turnState = nextTurnState;
+  turnCheckpointCommitted = false;
+  turnCheckpointPromise = null;
+
+  if (syncContext.enabled) {
+    const committed = await commitOnlineCheckpoint("extra turn boundary", rollbackState);
+    if (!committed) {
+      showRepeatTurnModal();
+      alert("The extra turn could not be started safely. Your completed turn is preserved; please retry.");
+      return;
+    }
+  }
+
   const dialog = document.getElementById('repeat-turn-dialog');
   if (dialog) {
     dialog.style.display = 'none';
@@ -2262,20 +2411,8 @@ const closeRepeatTurnModal = () => {
   if (gameContainer) {
     gameContainer.classList.remove('dialog-blocking');
   }
-  
-  // Check token limit before allowing repeat turn to continue
-  // Player must discard down to 10 tokens before continuing
-  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
-  const totalTokens = getTotalTokenCount(currentPlayerId);
-  if (totalTokens > 10) {
-    // Show discard modal - player must discard before continuing
-    showTokenDiscardModal();
-    // Don't reset repeatTurnActive yet - it will be reset after discarding
-    return;
-  }
-  
-  // Token count is OK, reset repeat turn flag and continue
-  repeatTurnActive = false;
+
+  renderGame();
 };
 
 // Show token selection modal (optionally in bonus token mode)
@@ -2392,6 +2529,7 @@ const showTokenSelectionModal = (isBonusMode = false) => {
 
 // Show steal token modal
 const showStealTokenModal = () => {
+  selectedStealColor = null;
   const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
   const opponent = gameState.players[otherPlayer];
@@ -2402,9 +2540,7 @@ const showStealTokenModal = () => {
   if (availableColors.length === 0) {
     // No tokens to steal, skip ability
     stealTokenMode = false;
-    if (!repeatTurnActive) {
-      checkAndShowRoyalCardSelection();
-    }
+    checkAndShowRoyalCardSelection();
     return;
   }
   
@@ -2439,9 +2575,8 @@ const showStealTokenModal = () => {
               `;
             }).join('')}
           </div>
-          <div style="display: flex; gap: 12px; margin-top: 12px;">
-            <button class="action-button cancel-button" onclick="closeStealTokenModal()">Cancel</button>
-          </div>
+          <p class="required-action-note">This card ability must be resolved before the turn can continue.</p>
+          <button class="action-button buy-button" id="confirm-steal-token-btn" disabled>Confirm Steal</button>
         </div>
       </div>
     </div>
@@ -2457,18 +2592,29 @@ const showStealTokenModal = () => {
   // Attach click handlers
   document.querySelectorAll('.steal-token-option').forEach(option => {
     option.addEventListener('click', () => {
-      const color = option.getAttribute('data-color');
-      confirmStealToken(color);
+      selectedStealColor = option.getAttribute('data-color');
+      document.querySelectorAll('.steal-token-option').forEach(candidate => {
+        candidate.classList.toggle('selected', candidate === option);
+      });
+      const confirmButton = document.getElementById('confirm-steal-token-btn');
+      if (confirmButton) confirmButton.disabled = false;
     });
     option.addEventListener('mouseenter', () => {
       option.style.transform = 'scale(1.1)';
       option.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
     });
     option.addEventListener('mouseleave', () => {
-      option.style.transform = 'scale(1)';
-      option.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
+      if (!option.classList.contains('selected')) {
+        option.style.transform = 'scale(1)';
+        option.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
+      }
     });
   });
+
+  const confirmButton = document.getElementById('confirm-steal-token-btn');
+  if (confirmButton) {
+    confirmButton.addEventListener('click', () => confirmStealToken(selectedStealColor));
+  }
 };
 
 const closeStealTokenModal = () => {
@@ -2477,13 +2623,12 @@ const closeStealTokenModal = () => {
     modal.remove();
   }
   stealTokenMode = false;
-  if (!repeatTurnActive) {
-    checkAndShowRoyalCardSelection();
-  }
+  selectedStealColor = null;
 };
 
 const confirmStealToken = (color) => {
   if (!ensureLocalTurn("Token stealing abilities resolve on your turn.")) return;
+  if (!color || color !== selectedStealColor) return;
   const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
   
@@ -2498,11 +2643,8 @@ const confirmStealToken = (color) => {
   
   closeStealTokenModal();
   renderGame();
-  
-  // Continue with turn completion if no repeat turn
-  if (!repeatTurnActive) {
-    checkAndShowRoyalCardSelection();
-  }
+
+  checkAndShowRoyalCardSelection();
 };
 
 const finalizePurchaseWithSelection = () => {
@@ -2605,7 +2747,14 @@ const proceedWithPurchase = () => {
   processCardAbilities(acquiredCard, playerId);
 };
 
-const renderPlayerColorCard = (color, cardCount, tokenCount, points, hasWild = false) => {
+const renderPlayerColorCard = (
+  color,
+  cardBonus,
+  tokenCount,
+  points,
+  cardCount,
+  hasWild = false
+) => {
   const colorClasses = {
     blue: 'blue',
     white: 'white',
@@ -2615,7 +2764,7 @@ const renderPlayerColorCard = (color, cardCount, tokenCount, points, hasWild = f
   };
   
   // Calculate total buying power (tokens + cards)
-  const buyingPower = cardCount + tokenCount;
+  const buyingPower = cardBonus + tokenCount;
   
   // Generate token SVGs in 2x2 grid (max 4 tokens)
   let tokensHTML = '';
@@ -2636,32 +2785,24 @@ const renderPlayerColorCard = (color, cardCount, tokenCount, points, hasWild = f
   const emptyStyle = cardCount === 0 ? 'style="border: 2px dashed #ccc; background: transparent;"' : '';
   
   // Add card-style stripes when we have cards
-  // If hasWild, use grey colors for background/bottom strip, but keep colored border
   let stripeTopHTML = '';
   let stripeBottomHTML = '';
   let wildIconHTML = '';
   if (cardCount > 0) {
     const colorValue = getColorValue(color);
     const colorClass = getColorClass(color);
-    if (hasWild) {
-      // Wild card styling: grey background and bottom strip, but colored border
-      stripeTopHTML = `<div class="card-stripe-top ${colorClass}" style="background-color: #999;"></div>`;
-      stripeBottomHTML = `<div class="card-stripe-bottom ${colorClass}" style="background-color: #999;"></div>`;
-      // Wild icon in upper left
-      wildIconHTML = `<div class="wild-token-icon" style="position: absolute; top: 4px; left: 4px; z-index: 15;">${generateWildIconSvg(22)}</div>`;
-    } else {
-      stripeTopHTML = `<div class="card-stripe-top ${colorClass}" style="background-color: ${colorValue}"></div>`;
-      stripeBottomHTML = `<div class="card-stripe-bottom ${colorClass}" style="background-color: ${colorValue}"></div>`;
-    }
+    stripeTopHTML = `<div class="card-stripe-top ${colorClass}" style="background-color: ${colorValue}"></div>`;
+    stripeBottomHTML = `<div class="card-stripe-bottom ${colorClass}" style="background-color: ${colorValue}"></div>`;
+    wildIconHTML = hasWild ? `<div class="wild-token-icon">${generateWildIconSvg(22)}</div>` : '';
   }
   
   const emptyClass = cardCount === 0 ? 'color-card-empty' : '';
   
-  // Show points if there's one or more cards in the stack, even if value is zero
-  const pointsHTML = cardCount > 0 ? `<div class="points-value ${color}">${points} pts</div>` : '';
+  const pointsHTML = cardCount > 0 ? `<div class="points-value ${color}">${points}</div>` : '';
+  const wildClass = hasWild ? "wild-topped" : "";
   
   return `
-    <div class="color-card ${color} ${emptyClass}" ${emptyStyle}>
+    <div class="color-card ${color} ${emptyClass} ${wildClass}" ${emptyStyle}>
       ${stripeTopHTML}
       ${stripeBottomHTML}
       ${wildIconHTML}
@@ -2706,7 +2847,7 @@ const renderMiscCardsFanInline = (playerId) => {
 };
 
 const renderPlayerHand = (playerId) => {
-  const { cards, points, wildStacks } = getPlayerCards(playerId);
+  const { cards, points, cardCounts, wildStacks } = getPlayerCards(playerId);
   const player = gameState.players[playerId];
   const colors = ['blue', 'white', 'green', 'red', 'black'];
   const stats = getPlayerVictoryStats(playerId);
@@ -2737,10 +2878,11 @@ const renderPlayerHand = (playerId) => {
   html += '<div class="color-cards-row">';
   
   colors.forEach(color => {
-    const cardCount = cards[color] || 0;
+    const cardBonus = cards[color] || 0;
+    const cardCount = cardCounts[color] || 0;
     const tokenCount = player.tokens[color] || 0;
     const hasWild = wildStacks[color] || false;
-    html += renderPlayerColorCard(color, cardCount, tokenCount, points[color] || 0, hasWild);
+    html += renderPlayerColorCard(color, cardBonus, tokenCount, points[color] || 0, cardCount, hasWild);
   });
   
   // Add reserved cards section - check if any reserved card is affordable
@@ -2776,19 +2918,21 @@ const renderHandDisplay = () => {
 // Render opponent stats for the top bar
 const renderOpponentStats = () => {
   const opponentId = turnDisplayState.opponentPlayerId;
-  const { cards, points } = getPlayerCards(opponentId);
+  const { cards, points, cardCounts, wildStacks } = getPlayerCards(opponentId);
   const player = gameState.players[opponentId];
   const stats = getPlayerVictoryStats(opponentId);
   const colors = ['blue', 'white', 'green', 'red', 'black'];
   
   let colorCardsHtml = '';
   colors.forEach(color => {
-    const cardCount = cards[color] || 0;
+    const cardBonus = cards[color] || 0;
+    const cardCount = cardCounts[color] || 0;
     const tokenCount = player.tokens[color] || 0;
     const pointValue = points[color] || 0;
+    const hasWild = wildStacks[color] || false;
     
     // Calculate total buying power (tokens + cards)
-    const buyingPower = cardCount + tokenCount;
+    const buyingPower = cardBonus + tokenCount;
     
     // Generate token SVGs in 2x2 grid (max 4 tokens)
     let tokensHTML = '';
@@ -2814,17 +2958,24 @@ const renderOpponentStats = () => {
       stripeTopHTML = `<div class="card-stripe-top ${colorClass}" style="background-color: ${colorValue}"></div>`;
       stripeBottomHTML = `<div class="card-stripe-bottom ${colorClass}" style="background-color: ${colorValue}"></div>`;
     }
+
+    const wildIconHTML = hasWild
+      ? `<div class="opponent-wild-token-icon">${generateWildIconSvg(16)}</div>`
+      : '';
     
     const emptyClass = cardCount === 0 ? 'opponent-color-card-empty' : '';
     const emptyStyle = cardCount === 0 ? 'style="border: 2px dashed #ccc; background: transparent;"' : '';
     
-    // Show points if there's one or more cards in the stack, even if value is zero
-    const pointsHTML = cardCount > 0 ? `<div class="opponent-points-value ${color}">${pointValue} pts</div>` : '';
+    const pointsHTML = cardCount > 0
+      ? `<div class="opponent-points-value ${color}">${pointValue}</div>`
+      : '';
+    const wildClass = hasWild ? "wild-topped" : "";
     
     colorCardsHtml += `
-      <div class="opponent-color-card ${color} ${emptyClass}" ${emptyStyle}>
+      <div class="opponent-color-card ${color} ${emptyClass} ${wildClass}" ${emptyStyle}>
         ${stripeTopHTML}
         ${stripeBottomHTML}
+        ${wildIconHTML}
         ${tokensHTML}
         <div class="opponent-power-circle ${color}">${buyingPower}</div>
         ${pointsHTML}
@@ -2855,6 +3006,138 @@ const renderOpponentStats = () => {
       </div>
     </div>
   `;
+};
+
+const getHandDetailStackColor = (card) => {
+  if (card.color === "wild" && card.wildColorStack) return card.wildColorStack;
+  if (purchaseColors.includes(card.color)) return card.color;
+  return null;
+};
+
+const renderHandDetailCard = (card) => {
+  if (card.id?.startsWith("royal-")) {
+    const abilityIcon = card.ability ? generateAbilityIcon({ ability: card.ability }) : "";
+    return `
+      <div class="hand-detail-card" title="Royal: ${card.points || 0} prestige points">
+        <div class="card royal-card-large hand-detail-royal-card">
+          <div class="royal-card-arch"></div>
+          <div class="royal-card-arch-dark"></div>
+          <div class="royal-card-stripe-bottom"></div>
+          <div class="royal-card-points">${card.points || 0}</div>
+          ${card.ability ? `<div class="royal-card-ability">${abilityIcon}</div>` : ""}
+          <div class="royal-card-crown">${generateCrownIcon(40)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  const normalizedCard = {
+    ...card,
+    level: card.level || 1,
+    color: card.color || "none",
+    costs: card.costs || {},
+    crowns: card.crowns || 0
+  };
+  const cardHtml = renderCardV2(normalizedCard, "hand-detail-card-face")
+    .replace('data-clickable="card" data-popover="card-detail-popover"', '');
+  return `<div class="hand-detail-card">${cardHtml}</div>`;
+};
+
+const renderHandDetailCardFan = (cards, emptyLabel = "No cards") => {
+  if (!cards.length) {
+    return `<div class="hand-detail-empty">${emptyLabel}</div>`;
+  }
+
+  return `
+    <div class="hand-detail-card-scroller">
+      <div class="hand-detail-card-fan">${cards.map(renderHandDetailCard).join("")}</div>
+    </div>
+  `;
+};
+
+const renderHandDetailTokens = (color, count) => {
+  if (count <= 0) return "";
+  return Array.from({ length: count }, () => `
+    <span class="hand-detail-token">${renderTokenIcon(color, 17)}</span>
+  `).join("");
+};
+
+const renderHandDetails = (playerId) => {
+  const player = gameState.players[playerId];
+  const colors = ["blue", "white", "green", "red", "black"];
+  const title = syncContext.enabled
+    ? (playerId === syncContext.localPlayerId ? "Your Hand" : "Opponent Hand")
+    : `${getPlayerLabel(playerId)} Hand`;
+  const otherCards = player.cards.filter(card => !getHandDetailStackColor(card));
+
+  const colorRows = colors.map(color => {
+    const cards = player.cards.filter(card => getHandDetailStackColor(card) === color);
+    return `
+      <section class="hand-detail-color-row ${color}" aria-label="${formatColorLabel(color)} cards and tokens">
+        <div class="hand-detail-row-content">
+          <div class="hand-detail-row-tokens">${renderHandDetailTokens(color, player.tokens[color] || 0)}</div>
+          ${renderHandDetailCardFan(cards)}
+        </div>
+      </section>
+    `;
+  }).join("");
+
+  const headerResources = [
+    ...Array.from({ length: player.tokens.pearl || 0 }, () => `
+      <span class="hand-detail-header-token">${renderTokenIcon("pearl", 21)}</span>
+    `),
+    ...Array.from({ length: player.tokens.gold || 0 }, () => `
+      <span class="hand-detail-header-token">${renderTokenIcon("gold", 21)}</span>
+    `)
+  ].join("");
+
+  return `
+    <div class="hand-details-header">
+      <h3>${title}</h3>
+      <div class="hand-details-header-actions">
+        <div class="hand-detail-header-resources" aria-label="Pearl and gold tokens">${headerResources}</div>
+        <button class="hand-details-close" onclick="closePopover('hand-details-modal')" aria-label="Close">×</button>
+      </div>
+    </div>
+    <div class="hand-details-scroll-area">
+      <div class="hand-detail-card-rows">
+        ${colorRows}
+        <section class="hand-detail-color-row hand-detail-other-row" aria-label="Other cards">
+          <div class="hand-detail-row-content hand-detail-other-content">
+            ${renderHandDetailCardFan(otherCards)}
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+};
+
+const showHandDetails = (playerId) => {
+  if (!gameState.players[playerId]) return;
+  const content = document.getElementById("hand-details-content");
+  if (!content) return;
+  content.innerHTML = renderHandDetails(playerId);
+  openPopover("hand-details-modal");
+};
+
+let handDetailsListenerAttached = false;
+const attachHandDetailsDelegation = () => {
+  if (handDetailsListenerAttached) return;
+  document.addEventListener("click", event => {
+    const handContainer = event.target.closest("#player-hand, #opponent-stats");
+    if (!handContainer) return;
+
+    const interactiveTarget = event.target.closest(
+      "button, a, input, select, textarea, [data-clickable], [role='button']"
+    );
+    if (interactiveTarget && handContainer.contains(interactiveTarget)) return;
+
+    const playerId = handContainer.id === "player-hand"
+      ? turnDisplayState.activePlayerId
+      : turnDisplayState.opponentPlayerId;
+    showHandDetails(playerId);
+  });
+  handDetailsListenerAttached = true;
 };
 
 const generateResourceSummary = () => {
@@ -2959,7 +3242,8 @@ const getVictoryModalMarkup = () => {
           points in ${winnerStats.maxColor}.
         </div>
         <div class="victory-actions">
-          <button class="action-button victory-primary-button" onclick="window.startNewGameFromGameOver()">${restartLabel}</button>
+          <button class="action-button victory-primary-button"
+            onclick="window.confirmNewGameFromGameOver()">${restartLabel}</button>
           <button class="action-button cancel-button victory-secondary-button" id="close-victory-btn">Close</button>
         </div>
       </div>
@@ -3011,6 +3295,16 @@ const startNewGameFromGameOver = async () => {
   }
 };
 
+const confirmNewGameFromGameOver = () => {
+  const onlineCopy = syncContext.enabled ? " for both players in this session" : "";
+  closeVictoryModal();
+  showConfirmationModal(
+    `Start a new game${onlineCopy}?<br><br>This permanently clears the board, hands, points, and turn history.`,
+    () => startNewGameFromGameOver(),
+    () => openVictoryModal()
+  );
+};
+
 const generateGameLayout = () => {
   const currentSessionId = syncContext.sessionId;
   const trimmedSessionId = trimSessionId(currentSessionId);
@@ -3030,7 +3324,6 @@ const generateGameLayout = () => {
         <button class="settings-btn" id="settings-btn" title="Game settings" onclick="window.showSettings()">⚙</button>
       </div>
       <div class="sync-turn-warning" id="turn-guard-message" aria-live="polite"></div>
-      
       <!-- Top Bar: Token Board (left) and Opponent Stats (right) -->
       <div class="top-bar">
         <div class="token-board-container" id="token-board-top">
@@ -3127,10 +3420,11 @@ const generateGameLayout = () => {
           <div class="modal-overlay card-modal-overlay" id="repeat-turn-dialog" style="display: none;">
             <div class="modal-content turn-completion-content">
               <div class="turn-completion-message">
-                <h3>Repeat Turn!</h3>
-                <p>You get another turn. Continue playing!</p>
+                <h3>Extra Turn Earned</h3>
+                <p>Your completed turn is locked in. Start a fresh turn with the revealed board.</p>
               </div>
-              <button class="action-button switch-players-button" onclick="closeRepeatTurnModal()">Okay</button>
+              <button class="action-button switch-players-button" id="repeat-turn-btn"
+                onclick="closeRepeatTurnModal()">Start Extra Turn</button>
             </div>
           </div>
 
@@ -3268,6 +3562,10 @@ const generateGameLayout = () => {
         ${renderPlayerHand(turnDisplayState.activePlayerId)}
       </div>
 
+      <div class="modal-overlay card-modal-overlay" id="hand-details-modal" style="display: none;">
+        <div class="modal-content hand-details-content" id="hand-details-content"></div>
+      </div>
+
       <!-- Mode Selection Modal -->
       <div class="modal-overlay card-modal-overlay" id="mode-selection-modal" style="display: none;">
         <div class="modal-content turn-completion-content">
@@ -3347,6 +3645,7 @@ let selectedCard = null;
 let selectedCardElement = null;
 let purchaseContext = null; // { source: 'pyramid'|'reserve', reserveIndex?: number, playerId?: string }
 let pendingWildCard = null; // Card waiting for color stack selection
+let selectedWildColor = null;
 let reservedSectionListenerAttached = false;
 
 const attachReservedSectionDelegation = () => {
@@ -3363,7 +3662,7 @@ const attachReservedSectionDelegation = () => {
 
 // Popover management functions
 const openPopover = (id, cardData = null, cardElement = null) => {
-  if (isGameOver() && id !== "victory-modal") {
+  if (isGameOver() && id !== "victory-modal" && id !== "hand-details-modal") {
     return;
   }
 
@@ -3407,7 +3706,6 @@ const closePopover = (id) => {
     hideSelectionError();
     scrollSelectionMode = false;
     scrollSelectedToken = null;
-    boardWasRefilled = false;
     // Clear bonus token mode
     bonusTokenMode = false;
     bonusTokenRequiredColor = null;
@@ -3444,6 +3742,7 @@ const closePopover = (id) => {
     // Clear pending wild card if modal is closed without placement
     // This ensures resources aren't lost if user cancels or closes modal
     pendingWildCard = null;
+    selectedWildColor = null;
   }
   if (id === 'royal-modal' && !royalCardSelectionMode) {
     // If closing royal modal in non-selection mode, make sure blocking is removed
@@ -3527,6 +3826,7 @@ const populateReservedModal = () => {
 // Wild card placement modal
 const showWildPlacementModal = () => {
   if (!pendingWildCard) return;
+  selectedWildColor = null;
   
   const modalBody = document.querySelector('#wild-placement-modal .modal-body');
   if (!modalBody) return;
@@ -3553,7 +3853,7 @@ const showWildPlacementModal = () => {
         <div style="color:#ff8a80; font-weight:600; text-align:center;">
           You must have a non-wild color card to place this on to.
         </div>
-        <button onclick="closePopover('wild-placement-modal'); pendingWildCard = null;" class="action-button cancel-button">Close</button>
+        <button onclick="closePopover('wild-placement-modal')" class="action-button cancel-button">Close</button>
       </div>
     `;
     openPopover('wild-placement-modal');
@@ -3605,8 +3905,10 @@ const showWildPlacementModal = () => {
       <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; flex:1; align-items:center;">
         ${colorOptions}
       </div>
-      <div style="display:flex; justify-content:center; margin-top:auto;">
-        <button onclick="closePopover('wild-placement-modal'); pendingWildCard = null;" class="action-button cancel-button">Cancel</button>
+      <div style="display:flex; justify-content:center; gap:12px; margin-top:auto;">
+        <button onclick="closePopover('wild-placement-modal')" class="action-button cancel-button">Cancel</button>
+        <button onclick="confirmWildCardPlacement()" class="action-button buy-button"
+          id="confirm-wild-placement-btn" disabled>Place Wild Card</button>
       </div>
     </div>
   `;
@@ -3614,20 +3916,35 @@ const showWildPlacementModal = () => {
   // Attach click handlers
   modalBody.querySelectorAll('.wild-color-option').forEach(option => {
     option.addEventListener('click', () => {
-      const color = option.getAttribute('data-color');
-      placeWildCard(color);
+      selectedWildColor = option.getAttribute('data-color');
+      modalBody.querySelectorAll('.wild-color-option').forEach(candidate => {
+        candidate.classList.toggle('selected', candidate === option);
+      });
+      const confirmButton = document.getElementById('confirm-wild-placement-btn');
+      if (confirmButton) confirmButton.disabled = false;
     });
     option.addEventListener('mouseenter', () => {
       option.style.transform = 'scale(1.05)';
       option.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
     });
     option.addEventListener('mouseleave', () => {
-      option.style.transform = 'scale(1)';
-      option.style.boxShadow = 'none';
+      if (!option.classList.contains('selected')) {
+        option.style.transform = 'scale(1)';
+        option.style.boxShadow = 'none';
+      }
     });
   });
   
   openPopover('wild-placement-modal');
+};
+
+const confirmWildCardPlacement = () => {
+  if (!pendingWildCard || !selectedWildColor) return;
+  const { playerId } = pendingWildCard;
+  const { cards, wildStacks } = getPlayerCards(playerId);
+  if ((cards[selectedWildColor] || 0) <= 0 || wildStacks[selectedWildColor]) return;
+
+  placeWildCard(selectedWildColor);
 };
 
 const placeWildCard = (color) => {
@@ -3670,11 +3987,18 @@ const placeWildCard = (color) => {
   }
   
   pendingWildCard = null;
+  selectedWildColor = null;
   closePopover('wild-placement-modal');
   renderGame();
   
   // Process card abilities after acquisition
   const acquiredCard = player.cards[player.cards.length - 1];
+  logTurnEvent('card_purchased', {
+    card: summarizeCard(acquiredCard),
+    fromReserve: !!fromReserve,
+    tokensSpent: summarizeSpend(paymentPlan?.spend || {}),
+    ability: acquiredCard.ability || null
+  });
   processCardAbilities(acquiredCard, playerId);
 };
 
@@ -3867,33 +4191,6 @@ const populateCardDetailPopover = (card) => {
   renderPaymentContent();
 };
 
-const buySelectedCard = () => {
-  if (!ensureLocalTurn("Buying cards is only allowed on your turn.")) return;
-  if (!selectedCard) return;
-  
-  const level = selectedCard.level;
-  const levelKey = `level${level}`;
-  const index = selectedCard._pyramidIndex;
-  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
-  
-  // Add card to current player's collection
-  gameState.players[currentPlayerId].cards.push(selectedCard);
-  
-  // Remove from pyramid
-  gameState.pyramid[levelKey].splice(index, 1);
-  
-  // Draw new card from deck if available
-  if (gameState.decks[levelKey].length > 0) {
-    gameState.pyramid[levelKey].splice(index, 0, gameState.decks[levelKey].shift());
-  }
-  
-  // Close popover before re-rendering
-  closePopover('card-detail-popover');
-  
-  // Re-render the game
-  renderGame();
-};
-
 // Helper function to check if there's gold on the board
 const hasGoldOnBoard = () => {
   for (let r = 0; r < gameState.board.length; r++) {
@@ -4021,10 +4318,11 @@ const reserveFromDeck = (level) => {
   proceedWithReserveFromDeck(level);
 };
 
-const proceedWithReserveFromDeck = (level) => {
+const proceedWithReserveFromDeck = async (level) => {
   const actionPlayerId = getActionPlayerId();
   const player = gameState.players[actionPlayerId];
   reserveMode = false;
+  const rollbackState = syncContext.enabled ? encodeSyncState() : null;
   
   const levelKey = `level${level}`;
   // Guard: deck must have cards
@@ -4050,6 +4348,18 @@ const proceedWithReserveFromDeck = (level) => {
     source: 'deck',
     level: level
   });
+
+  if (syncContext.enabled) {
+    const gameContainer = document.querySelector(".game-container");
+    if (gameContainer) gameContainer.classList.add("dialog-blocking");
+    const committed = await commitOnlineCheckpoint("reserve from hidden deck", rollbackState);
+    const currentContainer = document.querySelector(".game-container");
+    if (currentContainer) currentContainer.classList.remove("dialog-blocking");
+    if (!committed) {
+      alert("The reservation could not be saved, so the hidden card was not revealed. Please reconnect and try again.");
+      return;
+    }
+  }
   
   // Show the reserved card before turn completion
   showReservedCardReveal(card);
@@ -4164,7 +4474,35 @@ let selectedTokens = [];
 let selectionError = null;
 let scrollSelectionMode = false;
 let scrollSelectedToken = null;
-let boardWasRefilled = false;
+
+const resetTransientActionState = () => {
+  selectedCard = null;
+  selectedCardElement = null;
+  purchaseContext = null;
+  pendingWildCard = null;
+  paymentState = null;
+  pendingReserveDeckLevel = null;
+  reserveMode = false;
+  selectedTokens = [];
+  selectionError = null;
+  scrollSelectionMode = false;
+  scrollSelectedToken = null;
+  selectedRoyalCard = null;
+  royalCardSelectionMode = false;
+  bonusTokenMode = false;
+  bonusTokenRequiredColor = null;
+  stealTokenMode = false;
+  selectedStealColor = null;
+  selectedWildColor = null;
+  tokensToDiscard = [];
+  tokenDiscardMode = false;
+  requiredDiscardCount = 0;
+  discardModalMinimized = false;
+  turnDialogMode = null;
+  turnCheckpointCommitted = false;
+  turnCheckpointPromise = null;
+  turnHandoffInProgress = false;
+};
 
 // Toggle token selection
 const toggleTokenSelection = (row, col) => {
@@ -4620,10 +4958,7 @@ const proceedWithTokenSelection = () => {
   // Re-render game to show updated tokens
   renderGame();
   
-  // Continue with turn completion if no repeat turn
-  if (!repeatTurnActive) {
-    checkAndShowRoyalCardSelection();
-  }
+  checkAndShowRoyalCardSelection();
 };
 
 // Generate spiral positions from center (2,2) outward clockwise for 5x5 board
@@ -4651,18 +4986,13 @@ const bagToArray = () => {
 
 // Shuffle array using Fisher-Yates algorithm
 const shuffleArray = (array) => {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
+  return shuffle(array);
 };
 
 // Refill board from bag in spiral order
 const refillBoard = () => {
   if (!ensureLocalTurn("Refilling the board is only possible on your turn.")) return;
-  if (isBagEmpty()) {
+  if (isBagEmpty() || hasRefilledBoardThisTurn()) {
     return;
   }
   
@@ -4672,7 +5002,16 @@ const refillBoard = () => {
   });
 };
 
-const proceedWithRefillBoard = () => {
+const proceedWithRefillBoard = async () => {
+  if (!ensureLocalTurn("Refilling the board is only possible on your turn.")) return;
+  if (isBagEmpty() || hasRefilledBoardThisTurn()) return;
+
+  const stateBeforeRefill = syncContext.enabled ? encodeSyncState() : null;
+  const gameContainer = document.querySelector(".game-container");
+  if (gameContainer && syncContext.enabled) {
+    gameContainer.classList.add("dialog-blocking");
+  }
+
   // Get all tokens from bag as flat array and shuffle
   const bagTokens = bagToArray();
   const shuffled = shuffleArray(bagTokens);
@@ -4698,14 +5037,37 @@ const proceedWithRefillBoard = () => {
   // Award scroll to the other player when board is refilled
   const currentPlayer = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const otherPlayer = currentPlayer === 'player1' ? 'player2' : 'player1';
-  awardScroll(otherPlayer);
+  const scrollAwarded = awardScroll(otherPlayer);
   logTurnEvent('board_refilled', {
     tokensPlaced: tokenIndex,
-    scrollAwardedTo: otherPlayer
+    tokens: aggregateTokens(shuffled.slice(0, tokenIndex)),
+    scrollAwardedTo: scrollAwarded ? otherPlayer : null
   });
   
   // Mark that board was refilled (disables scroll usage)
-  boardWasRefilled = true;
+  ensureCurrentTurnState().boardRefilled = true;
+
+  if (syncContext.enabled) {
+    try {
+      await pushStateUpdate("board refill");
+      syncContext.syncStatus = "online";
+    } catch (error) {
+      if (error.current) {
+        syncContext.version = error.current.version;
+        gameSyncClient.version = error.current.version;
+        applySyncedState(error.current.state_blob);
+      } else if (stateBeforeRefill) {
+        applySyncedState(stateBeforeRefill);
+      }
+      syncContext.syncStatus = "degraded";
+      updateSyncUI();
+      alert("The refill could not be saved, so the previous board was restored. Please reconnect and try again.");
+      return;
+    } finally {
+      const currentContainer = document.querySelector(".game-container");
+      if (currentContainer) currentContainer.classList.remove("dialog-blocking");
+    }
+  }
   
   // Re-render token board if modal is open (keep it open)
   const modal = document.getElementById('token-selection-modal');
@@ -4776,7 +5138,7 @@ const renderScrollUsageSection = () => {
     const iconSize = scrollCount > 2 ? 24 : 28;
     
     for (let i = 0; i < scrollCount; i++) {
-      const disabled = boardWasRefilled ? 'disabled' : '';
+      const disabled = hasRefilledBoardThisTurn() ? 'disabled' : '';
       html += `<div class="scroll-icon ${disabled}" data-scroll-index="${i}" onclick="${disabled ? '' : 'enterScrollSelectionMode()'}">`;
       html += `<span class="privilege-scroll-emoji" style="font-size: ${iconSize}px;">🗞️</span>`;
       html += '</div>';
@@ -4784,7 +5146,7 @@ const renderScrollUsageSection = () => {
     
     html += '</div>';
     
-    if (boardWasRefilled) {
+    if (hasRefilledBoardThisTurn()) {
       html += '<div class="scroll-disabled-message">You may not use scrolls after refilling the board</div>';
     }
     
@@ -4796,6 +5158,8 @@ const renderScrollUsageSection = () => {
 // Enter scroll selection mode
 const enterScrollSelectionMode = () => {
   if (!ensureLocalTurn("Scrolls can only be used during your turn.")) return;
+  const player = gameState.players[getCurrentPlayerId()];
+  if ((player.privileges || 0) <= 0 || hasRefilledBoardThisTurn()) return;
   scrollSelectionMode = true;
   scrollSelectedToken = null;
   selectedTokens = [];
@@ -4820,6 +5184,9 @@ const confirmScrollSelection = () => {
   if (!scrollSelectedToken) return;
   
   const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
+  const selectedBoardToken = gameState.board[scrollSelectedToken.row]?.[scrollSelectedToken.col];
+  if ((gameState.players[currentPlayerId].privileges || 0) <= 0 || hasRefilledBoardThisTurn()) return;
+  if (!selectedBoardToken || selectedBoardToken === "gold" || selectedBoardToken !== scrollSelectedToken.token) return;
   
   // Check if this action will exceed token limit
   const tokenCheck = willExceedTokenLimit(currentPlayerId, 1);
@@ -4836,25 +5203,41 @@ const confirmScrollSelection = () => {
 };
 
 // Proceed with scroll selection (after confirmation)
-const proceedWithScrollSelection = () => {
+const proceedWithScrollSelection = async () => {
   const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   const player = gameState.players[currentPlayerId];
+  if (!scrollSelectedToken || hasRefilledBoardThisTurn()) return;
+  const selectedBoardToken = gameState.board[scrollSelectedToken.row]?.[scrollSelectedToken.col];
+  if (!selectedBoardToken || selectedBoardToken === "gold" || selectedBoardToken !== scrollSelectedToken.token) return;
+  const rollbackState = syncContext.enabled ? encodeSyncState() : null;
+  const selectedToken = { ...scrollSelectedToken };
+  if (!spendPrivilege(gameState, currentPlayerId)) return;
   
   // Add token to player's hand
-  player.tokens[scrollSelectedToken.token]++;
+  player.tokens[selectedToken.token]++;
   
   // Remove token from board
-  gameState.board[scrollSelectedToken.row][scrollSelectedToken.col] = null;
+  gameState.board[selectedToken.row][selectedToken.col] = null;
   
-  // Reduce scroll count
-  player.privileges = Math.max(0, (player.privileges || 0) - 1);
   logTurnEvent('scroll_token', {
-    token: scrollSelectedToken.token
+    token: selectedToken.token
   });
   
   // Reset scroll selection state
   scrollSelectedToken = null;
   scrollSelectionMode = false;
+
+  if (syncContext.enabled) {
+    const gameContainer = document.querySelector(".game-container");
+    if (gameContainer) gameContainer.classList.add("dialog-blocking");
+    const committed = await commitOnlineCheckpoint("Privilege token taken", rollbackState);
+    const currentContainer = document.querySelector(".game-container");
+    if (currentContainer) currentContainer.classList.remove("dialog-blocking");
+    if (!committed) {
+      alert("The Privilege action could not be saved, so it was rolled back. Please reconnect and try again.");
+      return;
+    }
+  }
   
   // Re-render board and scroll section (board stays open)
   renderTokenBoard();
@@ -4884,7 +5267,7 @@ const proceedWithScrollSelection = () => {
 const updateRefillButtonState = () => {
   const refillBtn = document.getElementById('refill-board-btn');
   if (refillBtn) {
-    refillBtn.disabled = isBagEmpty();
+    refillBtn.disabled = isBagEmpty() || hasRefilledBoardThisTurn();
   }
 };
 
@@ -4927,11 +5310,6 @@ const confirmRoyalCardSelection = () => {
   };
   player.cards.push(royalCard);
   
-  // Award scroll if card has scroll ability
-  if (selectedRoyalCard.ability === 'scroll') {
-    awardScroll(currentPlayerId);
-  }
-  
   // Mark card as taken
   selectedRoyalCard.taken = true;
   logTurnEvent('royal_acquired', {
@@ -4959,7 +5337,6 @@ const confirmRoyalCardSelection = () => {
 };
 
 // Expose to global scope for onclick handlers
-window.buySelectedCard = buySelectedCard;
 window.reserveSelectedCard = reserveSelectedCard;
 window.reserveFromDeck = reserveFromDeck;
 window.enterReserveMode = enterReserveMode;
@@ -4974,12 +5351,13 @@ window.enterScrollSelectionMode = enterScrollSelectionMode;
 window.cancelScrollSelection = cancelScrollSelection;
 window.closePopover = closePopover;
 window.confirmScrollSelection = confirmScrollSelection;
+window.confirmWildCardPlacement = confirmWildCardPlacement;
 window.selectRoyalCard = selectRoyalCard;
 window.confirmRoyalCardSelection = confirmRoyalCardSelection;
-window.closeStealTokenModal = closeStealTokenModal;
 window.confirmStealToken = confirmStealToken;
 window.closeRepeatTurnModal = closeRepeatTurnModal;
 window.startNewGameFromGameOver = startNewGameFromGameOver;
+window.confirmNewGameFromGameOver = confirmNewGameFromGameOver;
 window.reopenVictoryModal = reopenVictoryModal;
 // Deprecated: payment now renders inline in the same modal
 
@@ -4993,6 +5371,8 @@ document.addEventListener("keydown", (e) => {
           popover.id !== 'repeat-turn-dialog' && 
           popover.id !== 'token-discard-modal' &&
           popover.id !== 'victory-modal' &&
+          popover.id !== 'steal-token-modal' &&
+          !(popover.id === 'token-selection-modal' && bonusTokenMode) &&
           !(popover.id === 'royal-modal' && royalCardSelectionMode)) {
         popover.style.display = "none";
       }
@@ -5062,20 +5442,63 @@ const checkAndShowRoyalCardSelection = () => {
       return;
     }
 
-    const dialogMode = syncContext.enabled ? "online_end" : "local_end";
-    showTurnCompletionDialog(dialogMode);
+    if (ensureCurrentTurnState().extraTurnsPending > 0) {
+      showRepeatTurnModal();
+    } else {
+      const dialogMode = syncContext.enabled ? "online_end" : "local_end";
+      showTurnCompletionDialog(dialogMode);
+    }
+  }
+};
+
+const persistCompletedTurnCheckpoint = async (
+  buttonId = "switch-players-btn",
+  readyLabel = "End Turn"
+) => {
+  if (!syncContext.enabled || turnCheckpointCommitted) return true;
+  if (turnCheckpointPromise) return turnCheckpointPromise;
+
+  turnCheckpointPromise = (async () => {
+    const button = document.getElementById(buttonId);
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Saving turn...";
+    }
+
+    const committed = await commitOnlineCheckpoint("completed mandatory action", null);
+    if (committed) turnCheckpointCommitted = true;
+
+    const currentButton = document.getElementById(buttonId);
+    if (currentButton && isLocalPlayersTurn() && ensureCurrentTurnState().actionCompleted) {
+      currentButton.disabled = false;
+      currentButton.textContent = committed ? readyLabel : "Retry Save";
+    }
+    const dialogId = buttonId === "repeat-turn-btn" ? "repeat-turn-dialog" : "turn-completion-dialog";
+    const checkpointDialog = document.getElementById(dialogId);
+    if (checkpointDialog) {
+      checkpointDialog.classList.toggle("checkpoint-pending", !committed);
+    }
+    return committed;
+  })();
+
+  try {
+    return await turnCheckpointPromise;
+  } finally {
+    turnCheckpointPromise = null;
   }
 };
 
 const showTurnCompletionDialog = (mode = (syncContext.enabled ? 'online_end' : 'local_end')) => {
-  // Skip turn completion dialog if repeat turn is active (unless we're alerting at turn start)
-  if (mode !== 'online_start' && repeatTurnActive) {
-    repeatTurnActive = false; // Reset for next turn
-    return;
-  }
-  
   if (mode === 'online_start') {
     clearTurnGuardMessage();
+  }
+
+  if (mode === "online_end") {
+    const turnState = ensureCurrentTurnState();
+    if (!turnState.actionCompleted) {
+      turnState.actionCompleted = true;
+      turnCheckpointCommitted = false;
+    }
   }
   
   turnDialogMode = mode;
@@ -5123,27 +5546,55 @@ const showTurnCompletionDialog = (mode = (syncContext.enabled ? 'online_end' : '
   }
   
   dialog.style.display = 'flex';
+  dialog.classList.toggle(
+    "checkpoint-pending",
+    mode === "online_end" && !turnCheckpointCommitted
+  );
+
+  if (mode === "online_end" && !turnCheckpointCommitted) {
+    persistCompletedTurnCheckpoint();
+  }
 };
 
 const showWaitingForOpponent = () => {
-  // This will be handled by polling - when opponent makes a move, we'll update the state
-  // For now, just ensure the view stays on our player
-  const currentPlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
-  if (currentPlayerId !== syncContext.localPlayerId) {
-    // It's now the opponent's turn - ensure we're showing our hand
+  if (syncContext.enabled && syncContext.localPlayerId) {
     turnDisplayState.activePlayerId = syncContext.localPlayerId;
     turnDisplayState.opponentPlayerId = syncContext.localPlayerId === 'player1' ? 'player2' : 'player1';
     renderGame();
   }
   updateSyncUI();
+  maybeAdjustPollingCadence();
 };
 
-const handleTurnCompletionAction = () => {
+const handleTurnCompletionAction = async () => {
   const mode = turnDialogMode || (syncContext.enabled ? 'online_end' : 'local_end');
   if (mode === 'online_end') {
+    if (turnHandoffInProgress) return;
+    if (!(await persistCompletedTurnCheckpoint())) return;
+
+    turnHandoffInProgress = true;
+    const handoffButton = document.getElementById("switch-players-btn");
+    if (handoffButton) {
+      handoffButton.disabled = true;
+      handoffButton.textContent = "Ending turn...";
+    }
+
+    const rollbackState = encodeSyncState();
     finalizePendingTurn();
     advanceToNextPlayerOnline();
-    syncAfterTurn();
+    const committed = await commitOnlineCheckpoint("turn handoff", rollbackState);
+    if (!committed) {
+      turnHandoffInProgress = false;
+      alert("The turn handoff could not be saved. Your completed turn is preserved; please retry End Turn.");
+      if (isLocalPlayersTurn() && ensureCurrentTurnState().actionCompleted) {
+        showTurnCompletionDialog("online_end");
+      } else {
+        closeTurnCompletionDialog();
+        updateSyncUI();
+      }
+      return;
+    }
+    turnHandoffInProgress = false;
     closeTurnCompletionDialog();
     showWaitingForOpponent();
   } else if (mode === 'online_start') {
@@ -5475,15 +5926,7 @@ const confirmTokenDiscard = () => {
   // Re-render game
   renderGame();
   
-  // If we were in a repeat turn, reset the flag and continue playing
-  // Otherwise, continue with normal turn completion flow
-  if (repeatTurnActive) {
-    repeatTurnActive = false;
-    // Player can continue their repeat turn
-  } else {
-    // Continue with normal turn completion flow
-    checkAndShowRoyalCardSelection();
-  }
+  checkAndShowRoyalCardSelection();
 };
 
 // Expose token discard functions to global scope (after they're defined)
@@ -5501,6 +5944,7 @@ const switchPlayers = () => {
   // Update gameState.currentPlayer to match (for action consistency)
   // This keeps actions in sync, but display state is separate for future changes
   gameState.currentPlayer = turnDisplayState.activePlayerId === 'player1' ? 1 : 2;
+  resetCurrentTurnState();
   
   // Add transition class to elements
   const handDisplay = document.getElementById('player-hand');
@@ -5595,7 +6039,6 @@ const attachPopoverListeners = () => {
         selectionError = null;
         scrollSelectionMode = false;
         scrollSelectedToken = null;
-        boardWasRefilled = false;
         openPopover(modalId);
         // Attach token board listeners after modal is shown
         setTimeout(() => {
@@ -5641,6 +6084,7 @@ const renderGame = () => {
   setTimeout(() => {
     attachPopoverListeners();
     attachReservedSectionDelegation();
+    attachHandDetailsDelegation();
     // Attach turn completion dialog handler
     const switchBtn = document.getElementById('switch-players-btn');
     if (switchBtn) {
@@ -5868,18 +6312,7 @@ const updateSyncUI = () => {
 };
 
 const getRecentOpponentTurns = () => {
-  if (!syncContext.localPlayerId) return [];
-  const sourceTurns = Array.isArray(turnHistoryState.turns) ? turnHistoryState.turns : [];
-  const recent = [];
-  for (let i = sourceTurns.length - 1; i >= 0; i--) {
-    const turn = sourceTurns[i];
-    if (!turn) continue;
-    if (turn.playerId === syncContext.localPlayerId) {
-      break;
-    }
-    recent.unshift(turn);
-  }
-  return recent;
+  return getOpponentTurnsSinceLastLocalTurn(turnHistoryState, syncContext.localPlayerId);
 };
 
 const getLatestOpponentTurnId = () => {
@@ -5889,14 +6322,17 @@ const getLatestOpponentTurnId = () => {
 };
 
 const hasUnseenOpponentTurn = () => {
+  loadTurnSeenAcknowledgement();
   const latestId = getLatestOpponentTurnId();
   return Boolean(latestId && latestId !== syncContext.lastSeenTurnId);
 };
 
 const markOpponentTurnsAsSeen = () => {
+  loadTurnSeenAcknowledgement();
   const latestId = getLatestOpponentTurnId();
   if (latestId) {
     syncContext.lastSeenTurnId = latestId;
+    saveTurnSeenAcknowledgement();
   }
 };
 
@@ -5933,6 +6369,21 @@ const renderTokenIcons = (tokens = []) => {
   }</span>`;
 };
 
+const renderTurnCardPreview = (card) => {
+  if (!card) return '';
+  return `
+    <div class="turn-event-card-preview" aria-hidden="true">
+      ${renderCardV2(card, `level-${card.level || 1}-card`)}
+    </div>
+  `;
+};
+
+const renderTurnCardBack = (level) => `
+  <div class="turn-event-card-back" aria-label="Hidden level ${level || '?'} reserved card">
+    <span>?</span>
+  </div>
+`;
+
 const renderTurnEventRow = (event) => {
   const row = (label, content) => `
     <div class="turn-event-row">
@@ -5946,18 +6397,46 @@ const renderTurnEventRow = (event) => {
     case 'bonus_token_collected':
       return row('Bonus', `${event.bonusColor ? `${formatColorLabel(event.bonusColor)} ` : ''}${renderTokenIcons(event.tokens)}`);
     case 'board_refilled':
-      return row('Refill', `Filled ${event.tokensPlaced || 0} slots and granted opponent a scroll.`);
+      return row(
+        'Refill',
+        `<div class="turn-event-visual-detail">
+          ${renderTokenIcons(event.tokens)}
+          <span>
+            Filled ${event.tokensPlaced || 0} spaces${event.scrollAwardedTo ? ' and granted a Privilege' : ''}.
+          </span>
+        </div>`
+      );
     case 'card_reserved': {
-      const costTokens = event.card?.costs ? summarizeSpend(event.card.costs) : [];
-      const costHtml = costTokens.length ? `<span class="turn-event-costs">${renderTokenIcons(costTokens)}</span>` : '';
+      const hiddenReservation = event.source === 'deck';
       return row(
         'Reserved',
-        `${formatCardLabel(event.card)}${event.goldAwarded ? '<span class="turn-event-note">+ gold</span>' : ''}${costHtml}`
+        `<div class="turn-event-card-action">
+          ${hiddenReservation
+            ? renderTurnCardBack(event.level || event.card?.level)
+            : renderTurnCardPreview(event.card)}
+          <div class="turn-event-card-copy">
+            <span>
+              ${hiddenReservation
+                ? `Hidden card from level ${event.level || event.card?.level || '?'} deck`
+                : `Level ${event.card?.level || '?'} ${formatColorLabel(event.card?.color)}`}
+            </span>
+            ${event.goldAwarded ? '<span class="turn-event-note">+ gold</span>' : ''}
+          </div>
+        </div>`
       );
     }
     case 'card_purchased': {
       const spentIcons = event.tokensSpent && event.tokensSpent.length ? `<div>${renderTokenIcons(event.tokensSpent)}</div>` : '';
-      return row('Purchased', `${formatCardLabel(event.card)}${event.fromReserve ? ' (from reserve)' : ''}${spentIcons}`);
+      return row(
+        'Purchased',
+        `<div class="turn-event-card-action">
+          ${renderTurnCardPreview(event.card)}
+          <div class="turn-event-card-copy">
+            ${event.fromReserve ? '<span>From reserve</span>' : '<span>From pyramid</span>'}
+            ${spentIcons}
+          </div>
+        </div>`
+      );
     }
     case 'scroll_token':
       return row('Scroll', `Took a ${formatColorLabel(event.token)} token`);
@@ -5966,9 +6445,16 @@ const renderTurnEventRow = (event) => {
     case 'tokens_discarded':
       return row('Discarded', renderTokenIcons(event.tokens) || 'Returned tokens to the bag');
     case 'royal_acquired':
-      return row('Royal', `Claimed ${formatCardLabel(event.card)}`);
+      return row(
+        'Royal',
+        `<div class="turn-event-card-action">${renderTurnCardPreview(event.card)}<span>Claimed</span></div>`
+      );
     case 'repeat_turn_awarded':
       return row('Repeat', `Extra turn granted by ${formatCardLabel(event.card)}`);
+    case 'scroll_gained':
+      return row('Privilege', `Gained a Privilege from ${formatCardLabel(event.card)}`);
+    case 'scroll_unavailable':
+      return row('Privilege', 'Already held all 3 Privileges; no additional Privilege was gained.');
     default:
       return row('Event', event.type.replace(/_/g, ' '));
   }
@@ -5996,6 +6482,7 @@ const renderTurnSummaryEntries = (turns) => {
 };
 
 const updateTurnSummarySection = () => {
+  loadTurnSeenAcknowledgement();
   const container = document.getElementById('turn-summary-container');
   const listContainer = document.getElementById('turn-summary-list');
   if (!container || !listContainer) return;
@@ -6019,12 +6506,21 @@ const clearTurnSummarySection = () => {
 const maybeShowPendingTurnDialog = () => {
   if (!syncContext.enabled || !syncContext.localPlayerId) return;
   if (!isLocalPlayersTurn()) return;
+  if (ensureCurrentTurnState().actionCompleted) {
+    turnCheckpointCommitted = true;
+    if (ensureCurrentTurnState().extraTurnsPending > 0) {
+      setTimeout(() => showRepeatTurnModal(), 50);
+    } else {
+      setTimeout(() => showTurnCompletionDialog("online_end"), 50);
+    }
+    return;
+  }
   if (!hasUnseenOpponentTurn()) return;
   notifyTurnReady();
   setTimeout(() => showTurnCompletionDialog('online_start'), 50);
 };
 
-const POLL_INTERVAL_VISIBLE_WAITING_MS = 2500;
+const POLL_INTERVAL_VISIBLE_WAITING_MS = 1500;
 const POLL_INTERVAL_VISIBLE_MY_TURN_MS = 6000;
 const POLL_INTERVAL_HIDDEN_MS = 15000;
 
@@ -6117,7 +6613,6 @@ window.hostOnlineGame = async () => {
     // Set turn display to always show player1 as active
     turnDisplayState.activePlayerId = 'player1';
     turnDisplayState.opponentPlayerId = 'player2';
-    gameState.currentPlayer = 1;
     
     // Update URL to include session ID so refresh will reconnect
     const url = new URL(window.location);
@@ -6273,7 +6768,8 @@ window.showSettings = () => {
     html += `
       <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">
         <p><strong>Post-game:</strong></p>
-        <button class="action-button" onclick="window.closeSettings(); window.startNewGameFromGameOver();" style="margin-top: 5px; font-size: 12px;">
+        <button class="action-button" onclick="window.closeSettings(); window.confirmNewGameFromGameOver();"
+          style="margin-top: 5px; font-size: 12px;">
           ${restartLabel}
         </button>
       </div>
