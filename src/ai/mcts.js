@@ -1,7 +1,7 @@
 import { legalMoves, applyMove, mover, isTerminal, winner } from '../engine/turn.js';
 import { checkVictory } from '../engine/rules-misc.js';
 import { determinize } from './hidden.js';
-import { evaluate } from './eval.js';
+import { evaluate, WEIGHTS } from './eval.js';
 
 export const SEARCH_LEVELS = Object.freeze(Object.fromEntries(
   [150, 300, 600, 1200, 2400].map((iterations, i) => [i + 6, Object.freeze({ iterations })])
@@ -13,23 +13,23 @@ const node = () => ({ visits: 0, children: new Map(), priors: new Map() });
 // opponent reserves as hidden, including reservations made during the search.
 const movesFor = (state, rootPlayer) => legalMoves(state).filter(move =>
   mover(state) === rootPlayer || move.type !== 'buy' || move.source !== 'reserve');
-const score = (state, id, rootPlayer) => evaluate(state, id, { hiddenPlayerId: other(rootPlayer) });
-function value(state, rootPlayer) {
+const score = (state, id, rootPlayer, weights) => evaluate(state, id, { hiddenPlayerId: other(rootPlayer), weights });
+function value(state, rootPlayer, weights) {
   if (isTerminal(state)) return winner(state) === rootPlayer ? 1 : 0;
   // A spread of +/- 12 maps to .2/.8; ordinary opening differences stay modest.
-  return 1 / (1 + Math.exp(-(score(state, rootPlayer, rootPlayer) -
-    score(state, other(rootPlayer), rootPlayer)) / 9));
+  return 1 / (1 + Math.exp(-(score(state, rootPlayer, rootPlayer, weights) -
+    score(state, other(rootPlayer), rootPlayer, weights)) / 9));
 }
-function cheapPrior(state, move) {
+function cheapPrior(state, move, weights) {
   if (move.type === 'buy') {
     const card = move.source === 'reserve' ? state.players[mover(state)].reserves[move.index] :
       state.pyramid[`level${move.level}`][move.index];
-    return 10 + card.points * 3 + card.crowns * 2.5 + (card.isDouble ? 2 : 0);
+    return 10 + card.points * weights.points + card.crowns * weights.crowns + (card.isDouble ? weights.bonus : 0);
   }
-  if (move.type === 'take') return move.cells.length * 2 +
-    move.cells.reduce((n, [r, c]) => n + (state.board[r][c] === 'pearl' ? .3 : 0), 0);
-  if (move.type === 'usePrivilege') return 5;
-  if (move.type === 'reserve') return 1;
+  if (move.type === 'take') return move.cells.length * (2 * (weights.gem / WEIGHTS.gem)) +
+    move.cells.reduce((n, [r, c]) => n + (state.board[r][c] === 'pearl' ? .3 * (weights.pearl / WEIGHTS.pearl) : 0), 0);
+  if (move.type === 'usePrivilege') return 5 * (weights.privilege / WEIGHTS.privilege);
+  if (move.type === 'reserve') return weights.reserve / WEIGHTS.reserve;
   return 3;
 }
 
@@ -38,7 +38,7 @@ function cheapPrior(state, move) {
  * Priors are ordering hints cached on first encounter, not legality caches.
  */
 export function createSearch(state, { rng, rootPlayer = mover(state), exploration = 1.2,
-  leafDepth = 0, maxChildren = 16 } = {}) {
+  leafDepth = 0, maxChildren = 16, weights = WEIGHTS } = {}) {
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
   if (!isTerminal(state) && !['player1', 'player2'].includes(rootPlayer)) throw new RangeError('Invalid rootPlayer');
   if (!Number.isFinite(exploration) || exploration < 0) throw new RangeError('Invalid exploration');
@@ -60,7 +60,7 @@ export function createSearch(state, { rng, rootPlayer = mover(state), exploratio
     for (const move of moves) {
       const key = keyOf(move);
       if (!current.priors.has(key)) current.priors.set(key, depth === 0 ?
-        score(applyMove(position, move, sample), id, rootPlayer) : cheapPrior(position, move));
+        score(applyMove(position, move, sample), id, rootPlayer, weights) : cheapPrior(position, move, weights));
     }
     const keyed = moves.map(move => ({ move, key: keyOf(move) }));
     return { legal: new Set(keyed.map(candidate => candidate.key)), shortlist: keyed
@@ -103,13 +103,13 @@ export function createSearch(state, { rng, rootPlayer = mover(state), exploratio
       const id = mover(position);
       let bestNext, bestScore = -Infinity;
       for (const move of movesFor(position, rootPlayer)) {
-        const next = applyMove(position, move, sample), s = score(next, id, rootPlayer);
+        const next = applyMove(position, move, sample), s = score(next, id, rootPlayer, weights);
         if (s > bestScore) { bestNext = next; bestScore = s; }
       }
       if (!bestNext) break;
       position = bestNext;
     }
-    const result = value(position, rootPlayer);
+    const result = value(position, rootPlayer, weights);
     for (const visited of nodes) visited.visits++;
     for (const { edge, id } of path) {
       edge.visits++;
@@ -146,7 +146,7 @@ export function createSearch(state, { rng, rootPlayer = mover(state), exploratio
     get iterations() { return iterations; }
   };
 }
-export function chooseMoveSearch(state, { level = 6, rng } = {}) {
+export function chooseMoveSearch(state, { level = 6, rng, weights = WEIGHTS } = {}) {
   if (!SEARCH_LEVELS[level]) throw new RangeError('search level must be 6 through 10');
-  return createSearch(state, { rng }).step(SEARCH_LEVELS[level].iterations).best();
+  return createSearch(state, { rng, weights }).step(SEARCH_LEVELS[level].iterations).best();
 }

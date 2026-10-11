@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { availableParallelism } from 'node:os';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
@@ -8,17 +8,19 @@ import { LEVELS, chooseMove } from '../src/ai/index.js';
 import { loadCards } from '../src/engine/cards-node.js';
 import { newGame } from '../src/engine/setup.js';
 import { legalMoves, applyMoveWithEvents, isTerminal, winner } from '../src/engine/turn.js';
+import { clampWeights, unflattenWeights } from '../src/ai/eval.js';
 import { summarize, sprt } from './lib/stats.mjs';
 
 const levels = Object.keys(LEVELS).map(Number).sort((a, b) => a - b);
 const workerCap = Math.max(1, availableParallelism() - 1);
 const usage = `Usage: node tools/selfplay.mjs --a LEVEL|random --b LEVEL|random --games N
+  [--weights-a FILE] [--weights-b FILE]
   [--seed N] [--max-turns N] [--workers N] [--json PATH] [--sprt ELO0 ELO1]
   --ladder runs adjacent LEVELS pairs. Workers capped at ${workerCap}.`;
 
 function parse(args) {
   const config = { a: levels.at(-1), b: levels[0], games: 40, seed: 1, maxTurns: 400, workers: 1, ladder: false };
-  const flags = { '--a': 'a', '--b': 'b', '--games': 'games', '--seed': 'seed', '--max-turns': 'maxTurns', '--workers': 'workers', '--json': 'json' };
+  const flags = { '--a': 'a', '--b': 'b', '--games': 'games', '--seed': 'seed', '--max-turns': 'maxTurns', '--workers': 'workers', '--json': 'json', '--weights-a': 'weightsAFile', '--weights-b': 'weightsBFile' };
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--help' || flag === '-h') return { help: true };
@@ -31,7 +33,7 @@ function parse(args) {
     if (!flags[flag] || i + 1 >= args.length) throw new Error(`Unknown or incomplete option: ${flag}`);
     const key = flags[flag];
     const value = args[++i];
-    config[key] = key === 'json' || value === 'random' && (key === 'a' || key === 'b') ? value : Number(value);
+    config[key] = ['json', 'weightsAFile', 'weightsBFile'].includes(key) || value === 'random' && (key === 'a' || key === 'b') ? value : Number(value);
   }
   for (const key of ['a', 'b']) {
     if (config[key] !== 'random' && !levels.includes(config[key])) throw new Error(`${key} must be random or one of ${levels.join(', ')}`);
@@ -67,14 +69,16 @@ export function playGame(config, index) {
   let decisions = 0;
   const timing = {};
   while (!isTerminal(state) && turns < config.maxTurns) {
-    const kind = `player${state.currentPlayer}` === aSeat ? config.a : config.b;
+    const isA = `player${state.currentPlayer}` === aSeat;
+    const kind = isA ? config.a : config.b;
+    const weights = isA ? config.weightsA : config.weightsB;
     const moveRng = rng(decisionSeed(seed, decisions, 0xa17e));
     const start = performance.now();
     let move;
     if (kind === 'random') {
       const moves = legalMoves(state);
       move = moves[Math.floor(moveRng() * moves.length)];
-    } else move = chooseMove(state, { level: kind, rng: moveRng });
+    } else move = chooseMove(state, { level: kind, rng: moveRng, weights });
     const elapsed = performance.now() - start;
     const bucket = timing[kind] ??= { ms: 0, decisions: 0 };
     bucket.ms += elapsed;
@@ -152,6 +156,11 @@ export async function runMatch(config) {
   };
 }
 
+export async function playMatch({ weightsA, weightsB, levelA = 5, levelB = 5, games = 16, seed = 1, workers = 1, maxTurns = 400 }) {
+  const config = parse(['--a', String(levelA), '--b', String(levelB), '--games', String(games), '--seed', String(seed), '--workers', String(workers), '--max-turns', String(maxTurns)]);
+  return runMatch({ ...config, weightsA: weightsA && unflattenWeights(clampWeights(weightsA)), weightsB: weightsB && unflattenWeights(clampWeights(weightsB)) });
+}
+
 function label(kind) { return kind === 'random' ? 'random' : `L${kind}`; }
 function summary(result) {
   return `${label(result.a)} vs ${label(result.b)}: wins A ${result.winsA} / wins B ${result.winsB} / draws ${result.draws}; score A ${result.scorePercent.toFixed(1)}%; Elo ${result.elo.toFixed(1)} [95% CI ${result.ci95.map(n => n.toFixed(1)).join(', ')}]; avg turns ${result.averageTurns.toFixed(1)}`;
@@ -159,6 +168,9 @@ function summary(result) {
 export async function main(args = process.argv.slice(2), log = console.log) {
   const config = parse(args);
   if (config.help) { log(usage); return; }
+  for (const key of ['weightsA', 'weightsB']) if (config[`${key}File`]) {
+    config[key] = unflattenWeights(clampWeights(JSON.parse(await readFile(config[`${key}File`], 'utf8'))));
+  }
   let output;
   if (config.ladder) {
     const matches = [];
