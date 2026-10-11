@@ -2,6 +2,7 @@ import { isStraightLine } from './engine/tokens.js';
 import "./style.css";
 import { aiModeAvailable, vsComputer, enableComputer, disableComputer, applyGameInto,
   rememberedLevel, rememberLevel, levelPickerHtml, scheduleComputerTurn } from './ai/vs-computer.js';
+import { VS_COMPUTER_SAVE_KEY, serializeSnapshot, parseSnapshot } from './ai/vs-computer-save.js';
 import { aiTurnRecap, engineStateFromGame } from './ai/bridge.js';
 import cardsCsv from "./splendor_cards.csv?raw";
 import { buildPushMeta, buildLobbyMeta } from "./push-meta.js";
@@ -792,6 +793,28 @@ const buildSyncState = () => {
 
 const encodeSyncState = () => {
   return JSON.stringify(buildSyncState());
+};
+
+// Save synchronously at committed boundaries; a killed app cannot flush a debounce.
+const clearComputerSave = () => {
+  try { window.localStorage.removeItem(VS_COMPUTER_SAVE_KEY); } catch { /* Storage may be unavailable. */ }
+};
+const saveComputerCheckpoint = () => {
+  if (!vsComputer.enabled || syncContext.enabled) return;
+  try {
+    window.localStorage.setItem(VS_COMPUTER_SAVE_KEY, serializeSnapshot(buildSyncState(), {
+      level: vsComputer.level, savedAt: Date.now(), lastSeenTurnId: syncContext.lastSeenTurnId
+    }));
+  } catch { /* The game remains playable if storage is unavailable. */ }
+};
+const readComputerSave = () => {
+  try {
+    const raw = window.localStorage.getItem(VS_COMPUTER_SAVE_KEY);
+    if (raw === null) return null;
+    const snapshot = parseSnapshot(raw);
+    if (!snapshot) clearComputerSave();
+    return snapshot;
+  } catch { return null; }
 };
 
 const applySyncedState = (rawBlob) => {
@@ -2370,6 +2393,7 @@ const showRepeatTurnModal = () => {
     gameContainer.classList.add('dialog-blocking');
   }
   
+  saveComputerCheckpoint();
   dialog.style.display = 'flex';
   dialog.classList.toggle("checkpoint-pending", syncContext.enabled && !turnCheckpointCommitted);
 
@@ -2398,6 +2422,7 @@ const closeRepeatTurnModal = async () => {
   const rollbackState = syncContext.enabled ? encodeSyncState() : null;
   finalizePendingTurn("extra_turn");
   gameState.turnState = nextTurnState;
+  saveComputerCheckpoint();
   turnCheckpointCommitted = false;
   turnCheckpointPromise = null;
 
@@ -3197,6 +3222,7 @@ const openVictoryModal = () => {
   const modal = document.getElementById("victory-modal");
   if (modal) {
     modal.style.display = "flex";
+    if (vsComputer.enabled && !syncContext.enabled) clearComputerSave();
   }
   const gameContainer = document.querySelector(".game-container");
   if (gameContainer) {
@@ -4375,6 +4401,11 @@ const proceedWithReserveFromDeck = async (level) => {
     }
   }
   
+  if (vsComputer.enabled && !syncContext.enabled) {
+    ensureCurrentTurnState().actionCompleted = true;
+    saveComputerCheckpoint();
+  }
+
   // Show the reserved card before turn completion
   showReservedCardReveal(card);
 };
@@ -5029,6 +5060,8 @@ const proceedWithRefillBoard = async () => {
     }
   }
   
+  saveComputerCheckpoint();
+
   // Re-render token board if modal is open (keep it open)
   const modal = document.getElementById('token-selection-modal');
   const wasOpen = modal && modal.style.display === 'flex';
@@ -5199,6 +5232,8 @@ const proceedWithScrollSelection = async () => {
     }
   }
   
+  saveComputerCheckpoint();
+
   // Re-render board and scroll section (board stays open)
   renderTokenBoard();
   renderScrollUsageSection();
@@ -5414,6 +5449,7 @@ const persistCompletedTurnCheckpoint = async (
   buttonId = "switch-players-btn",
   readyLabel = "End Turn"
 ) => {
+  if (vsComputer.enabled && !syncContext.enabled) saveComputerCheckpoint();
   if (!syncContext.enabled || turnCheckpointCommitted) return true;
   if (turnCheckpointPromise) return turnCheckpointPromise;
 
@@ -5452,7 +5488,7 @@ const showTurnCompletionDialog = (mode = (syncContext.enabled ? 'online_end' : '
     clearTurnGuardMessage();
   }
 
-  if (mode === "online_end") {
+  if (mode === "online_end" || (vsComputer.enabled && mode === "local_end")) {
     const turnState = ensureCurrentTurnState();
     if (!turnState.actionCompleted) {
       turnState.actionCompleted = true;
@@ -5460,6 +5496,7 @@ const showTurnCompletionDialog = (mode = (syncContext.enabled ? 'online_end' : '
     }
   }
   
+  if (vsComputer.enabled && mode === "local_end") saveComputerCheckpoint();
   turnDialogMode = mode;
   
   const dialog = document.getElementById('turn-completion-dialog');
@@ -5901,6 +5938,7 @@ const switchPlayers = () => {
     if (isGameOver() || vsComputer.busy || gameState.currentPlayer !== 1) return;
     gameState.currentPlayer = 2;
     resetCurrentTurnState();
+    saveComputerCheckpoint();
     runComputerTurn();
     return;
   }
@@ -6305,6 +6343,7 @@ const markOpponentTurnsAsSeen = () => {
   if (latestId) {
     syncContext.lastSeenTurnId = latestId;
     saveTurnSeenAcknowledgement();
+    saveComputerCheckpoint();
   }
 };
 
@@ -6538,6 +6577,7 @@ const runComputerTurn = () => scheduleComputerTurn({
     applyGameInto(previousCrownCounts, game.previousCrownCounts);
     resetTransientActionState();
     if (!isGameOver()) resetCurrentTurnState();
+    saveComputerCheckpoint();
   },
   refresh: () => {
     renderGame();
@@ -6556,6 +6596,7 @@ window.showComputerLevelPicker = () => {
 };
 window.startVsComputer = level => {
   if (!aiModeAvailable() || vsComputer.busy) return;
+  clearComputerSave();
   enableComputer(level);
   rememberLevel(level);
   stopPolling();
@@ -6568,6 +6609,7 @@ window.startVsComputer = level => {
   window.history.replaceState({}, '', url);
   initializeGame();
   renderGame();
+  saveComputerCheckpoint();
   if (gameState.currentPlayer === 2) runComputerTurn();
 };
 window.retryComputerTurn = runComputerTurn;
@@ -6595,6 +6637,7 @@ if (aiModeAvailable()) {
       }
       // Existing online handlers remain unchanged; relinquish local AI mode before entering them.
       if (type === 'click' && event.target.closest?.('#mode-selection-modal button')?.getAttribute('onclick')?.match(/hostOnlineGame|showJoinDialog/)) {
+        clearComputerSave();
         disableComputer();
       }
     }, { capture: true, passive: false });
@@ -6627,6 +6670,7 @@ window.closeModeSelection = () => {
 };
 
 window.selectLocalMode = () => {
+  clearComputerSave();
   if (vsComputer.enabled) {
     disableComputer();
     initializeGame();
@@ -6639,6 +6683,8 @@ window.selectLocalMode = () => {
 };
 
 window.hostOnlineGame = async () => {
+  clearComputerSave();
+  disableComputer();
   try {
     requestTurnNotificationPermission();
 
@@ -6709,6 +6755,8 @@ window.hostOnlineGame = async () => {
 };
 
 window.showJoinDialog = () => {
+  clearComputerSave();
+  disableComputer();
   window.closeModeSelection();
   const modal = document.getElementById('join-game-modal');
   if (modal) {
@@ -7153,6 +7201,27 @@ const init = async () => {
   syncContext.serviceAvailable = serviceAvailable;
   syncContext.syncStatus = serviceAvailable ? 'online' : 'offline';
   
+  // Online links take precedence, including an empty/invalid ?session parameter.
+  const computerSave = readComputerSave();
+  if (computerSave && !urlParams.has('session') && aiModeAvailable()) {
+    enableComputer(computerSave.level);
+    syncContext.lastSeenTurnId = computerSave.lastSeenTurnId;
+    if (applySyncedState(JSON.stringify(computerSave.state))) {
+      updateSyncUI();
+      const notice = document.createElement('div');
+      notice.className = 'computer-resume-notice';
+      notice.setAttribute('role', 'status');
+      notice.textContent = `Resumed your game vs Computer (level ${computerSave.level})`;
+      document.body.append(notice);
+      setTimeout(() => notice.remove(), 6000);
+      if (gameState.currentPlayer === 2) runComputerTurn();
+      else if (ensureCurrentTurnState().actionCompleted) checkAndShowRoyalCardSelection();
+      return;
+    }
+    disableComputer();
+    clearComputerSave();
+  }
+
   // If session param exists and service is available, try to join/reconnect
   if (normalizedSessionParam && serviceAvailable) {
     // Determine role: if role param is p1, we're the host reconnecting

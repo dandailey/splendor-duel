@@ -4,6 +4,8 @@ import { promisify } from 'node:util';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import assert from 'node:assert/strict';
+import { VS_COMPUTER_SAVE_KEY } from '../src/ai/vs-computer-save.js';
 import { inspect } from 'node:util';
 import jsdom from 'jsdom';
 import { checkInvariants } from '../src/engine/invariants.js';
@@ -35,7 +37,7 @@ async function check(label, fn) {
 
 // The single-file Vite bundle has no imports. jsdom does not execute modules;
 // change only its script type in memory, leaving the built file untouched.
-function openPage(html, name, url) {
+function openPage(html, name, url, storage = {}) {
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('error', (...args) => errors.push(`${name} console.error: ${inspect(args)}`));
   virtualConsole.on('jsdomError', error => errors.push(`${name} jsdomError: ${error.stack || error.message}`));
@@ -44,6 +46,7 @@ function openPage(html, name, url) {
     url, runScripts: 'dangerously', pretendToBeVisual: true,
     resources: 'usable', virtualConsole,
     beforeParse(window) {
+      for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, value);
       // Identical startup randomness lets us compare the two page layouts.
       window.Math.random = () => {
         seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
@@ -65,6 +68,11 @@ function openPage(html, name, url) {
   pages.push(dom);
   return dom.window;
 }
+const copyStorage = window => Object.fromEntries(Array.from({ length: window.localStorage.length }, (_, i) => {
+  const key = window.localStorage.key(i);
+  return [key, window.localStorage.getItem(key)];
+}));
+const plainState = window => JSON.parse(JSON.stringify(window.__splendorDebugState()));
 const stateOf = window => window.__splendorDebugState().gameState;
 function invariants(window) {
   const violations = checkInvariants(stateOf(window));
@@ -341,9 +349,19 @@ try {
     invariants(beta);
     await until(() => beta.document.querySelector('#turn-completion-dialog')?.style.display === 'flex', 'turn completion dialog shown');
     await until(() => beta.document.querySelector('#switch-players-btn')?._handlerAttached, 'completion control listener');
+    const humanCheckpoint = openPage(html, 'human-checkpoint', 'https://danieldailey.com/splendor_duel/index.html?debug', copyStorage(beta));
+    await until(() => humanCheckpoint.document.querySelector('.computer-resume-notice'), 'completed human action resumes');
+    assert.deepEqual(plainState(humanCheckpoint), plainState(beta));
+    requireThat(humanCheckpoint.document.querySelector('#turn-completion-dialog').style.display === 'flex', 'completed human action lost its End Turn dialog');
+    humanView(humanCheckpoint);
     beta.document.querySelector('#switch-players-btn').click();
     requireThat(stateOf(beta).currentPlayer === 2, 'end-turn control did not schedule AI');
     humanView(beta);
+    const interruptedStorage = copyStorage(beta);
+    requireThat(JSON.parse(interruptedStorage[VS_COMPUTER_SAVE_KEY]).state.gameState.currentPlayer === 2, 'human handoff not saved before AI');
+    const interrupted = openPage(html, 'interrupted-AI', 'https://danieldailey.com/splendor_duel/index.html?debug', interruptedStorage);
+    await until(() => interrupted.document.querySelector('.computer-resume-notice'), 'interrupted AI resume notice');
+    await aiFinished(interrupted);
     await aiFinished(beta);
     requireThat(JSON.stringify(stateOf(beta).players.player2) !== JSON.stringify(before.players.player2), 'AI player state did not change');
     const summary = beta.document.querySelector('#turn-summary-list').innerHTML;
@@ -357,6 +375,47 @@ try {
     requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'flex', 're-render dismissed recap');
     requireThat(beta.document.querySelector('#turn-summary-list').innerHTML === summary, 're-render changed recap');
     await until(() => beta.document.querySelector('#switch-players-btn')?._handlerAttached, 'recap dismissal listener');
+    const savedStorage = copyStorage(beta);
+    const expected = plainState(beta);
+    assert.deepEqual(JSON.parse(savedStorage[VS_COMPUTER_SAVE_KEY]).state.gameState, expected.gameState);
+    const resumed = openPage(html, 'resumed', 'https://danieldailey.com/splendor_duel/index.html?debug', savedStorage);
+    await until(() => resumed.document.querySelector('.computer-resume-notice'), 'resume notice');
+    await aiFinished(resumed);
+    assert.deepEqual(plainState(resumed), expected);
+    requireThat(resumed.document.querySelector('.computer-resume-notice').textContent === 'Resumed your game vs Computer (level 3)', 'wrong resume notice');
+    await delay(550);
+    requireThat(resumed.document.querySelector('#mode-selection-modal').style.display !== 'flex', 'resume showed mode dialog');
+    resumed.document.querySelector('#switch-players-btn').click();
+    const acknowledged = openPage(html, 'acknowledged', 'https://danieldailey.com/splendor_duel/index.html?debug', copyStorage(resumed));
+    await until(() => acknowledged.document.querySelector('.computer-resume-notice'), 'acknowledged resume');
+    await delay(100);
+    assert.deepEqual(plainState(acknowledged), expected);
+    humanView(acknowledged);
+    requireThat(acknowledged.document.querySelector('#turn-completion-dialog').style.display !== 'flex', 'acknowledged recap reappeared after restart');
+    for (const [name, mutate, query] of [
+      ['game-over', snapshot => { snapshot.state.gameState.gameOver.winnerId = 'player2'; }, '?debug'],
+      ['corrupt', () => null, '?debug'],
+      ['online-link', snapshot => snapshot, '?debug&session=example'],
+      ['empty-online-link', snapshot => snapshot, '?debug&session='],
+      ['kill-switch-save', snapshot => snapshot, '?debug&noai']
+    ]) {
+      const snapshot = JSON.parse(savedStorage[VS_COMPUTER_SAVE_KEY]);
+      const result = mutate(snapshot);
+      const storage = { ...savedStorage, [VS_COMPUTER_SAVE_KEY]: result === null ? '{broken' : JSON.stringify(snapshot) };
+      const page = openPage(html, name, `https://danieldailey.com/splendor_duel/index.html${query}`, storage);
+      await until(() => page.document.querySelector('.game-container'), `${name} initializes`);
+      await delay(550);
+      requireThat(!page.document.querySelector('.computer-resume-notice'), `${name} resumed local game`);
+      requireThat(page.document.querySelector('#settings-modal-content')?.textContent?.includes('vs Computer') !== true, `${name} enabled Computer`);
+      if (name === 'game-over' || name === 'corrupt') requireThat(page.localStorage.getItem(VS_COMPUTER_SAVE_KEY) === null, `${name} snapshot not deleted`);
+    }
+    acknowledged.selectLocalMode();
+    requireThat(acknowledged.localStorage.getItem(VS_COMPUTER_SAVE_KEY) === null, 'hotseat retained Computer save');
+    acknowledged.startVsComputer(3);
+    const fresh = JSON.parse(acknowledged.localStorage.getItem(VS_COMPUTER_SAVE_KEY));
+    requireThat(fresh.level === 3 && fresh.state.turnHistory.turns.length === 0, 'new Computer game did not write fresh save');
+    acknowledged.showJoinDialog();
+    requireThat(acknowledged.localStorage.getItem(VS_COMPUTER_SAVE_KEY) === null, 'online mode retained Computer save');
     const afterAI = JSON.stringify(stateOf(beta));
     beta.document.querySelector('#switch-players-btn').click();
     requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'none', 'Start Turn did not dismiss recap');
@@ -364,7 +423,7 @@ try {
     beta.__splendorDebugRender();
     await delay(100);
     requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'none', 'dismissed recap reappeared');
-    return `recap matches Computer history, persists until Start Turn, survives re-render, and stays dismissed; real DOM: open board, click (${cell.row},${cell.col}) ${cell.color}, Confirm, finish turn; AI replied and player1 view/control retained`;
+    return `app-kill resume deep-equals game/crowns/history, retains human view, shows notice without mode dialog, runs interrupted AI, restores recap exactly once, rejects finished/corrupt saves and online URLs; recap matches Computer history, persists until Start Turn, survives re-render, and stays dismissed; real DOM: open board, click (${cell.row},${cell.col}) ${cell.color}, Confirm, finish turn; AI replied and player1 view/control retained`;
   });
 } catch (error) {
   failures++;
