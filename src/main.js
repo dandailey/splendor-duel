@@ -1,7 +1,8 @@
 import { isStraightLine } from './engine/tokens.js';
 import "./style.css";
 import { aiModeAvailable, vsComputer, enableComputer, disableComputer, applyGameInto,
-  rememberedLevel, rememberLevel, levelPickerHtml, summaryBannerHtml, scheduleComputerTurn } from './ai/vs-computer.js';
+  rememberedLevel, rememberLevel, levelPickerHtml, scheduleComputerTurn } from './ai/vs-computer.js';
+import { aiTurnRecap, engineStateFromGame } from './ai/bridge.js';
 import cardsCsv from "./splendor_cards.csv?raw";
 import { buildPushMeta, buildLobbyMeta } from "./push-meta.js";
 import { nativePushAvailable, nativePush } from "./native-push.js";
@@ -3335,7 +3336,6 @@ const generateGameLayout = () => {
         </div>
         <button class="settings-btn" id="settings-btn" title="Game settings" onclick="window.showSettings()">⚙</button>
       </div>
-      ${vsComputer.enabled ? summaryBannerHtml(vsComputer.summary) : ''}
       ${vsComputer.enabled && (vsComputer.busy || vsComputer.error) ? `<div class="ai-thinking" role="status" aria-live="polite"><div>${vsComputer.error || 'Computer is thinking...'}${vsComputer.error ? '<button class="action-button" data-ai-retry onclick="window.retryComputerTurn()">Retry computer turn</button>' : ''}</div></div>` : ''}
       <div class="sync-turn-warning" id="turn-guard-message" aria-live="polite"></div>
       <!-- Top Bar: Token Board (left) and Opponent Stats (right) -->
@@ -5526,7 +5526,7 @@ const showWaitingForOpponent = () => {
 };
 
 const handleTurnCompletionAction = async () => {
-  if (vsComputer.enabled && (vsComputer.busy || gameState.currentPlayer !== 1 || isGameOver())) return;
+  if (vsComputer.enabled && (vsComputer.busy || (turnDialogMode !== 'online_start' && (gameState.currentPlayer !== 1 || isGameOver())))) return;
   const mode = turnDialogMode || (syncContext.enabled ? 'online_end' : 'local_end');
   if (mode === 'online_end') {
     if (turnHandoffInProgress) return;
@@ -5562,6 +5562,7 @@ const handleTurnCompletionAction = async () => {
     closeTurnCompletionDialog();
     clearTurnSummarySection();
     updateSyncUI();
+    if (vsComputer.enabled && isGameOver()) openVictoryModal();
   } else {
     finalizePendingTurn();
     syncAfterTurn();
@@ -6046,6 +6047,10 @@ const attachPopoverListeners = () => {
 
 const renderGame = () => {
   document.querySelector("#app").innerHTML = generateGameLayout();
+  // Rebuild the local Computer recap after every render until Start Turn acknowledges it.
+  if (vsComputer.enabled && !vsComputer.busy && hasUnseenOpponentTurn()) {
+    showTurnCompletionDialog('online_start');
+  }
   
   // Re-attach event listeners
   setTimeout(() => {
@@ -6072,7 +6077,7 @@ const renderGame = () => {
       closeVictoryBtn.addEventListener("click", closeVictoryBtn._clickHandler);
       closeVictoryBtn._handlerAttached = true;
     }
-    if (isGameOver()) {
+    if (isGameOver() && !(vsComputer.enabled && hasUnseenOpponentTurn())) {
       openVictoryModal();
     }
     // Update sync UI after render
@@ -6279,7 +6284,7 @@ const updateSyncUI = () => {
 };
 
 const getRecentOpponentTurns = () => {
-  return getOpponentTurnsSinceLastLocalTurn(turnHistoryState, syncContext.localPlayerId);
+  return getOpponentTurnsSinceLastLocalTurn(turnHistoryState, vsComputer.enabled ? 'player1' : syncContext.localPlayerId);
 };
 
 const getLatestOpponentTurnId = () => {
@@ -6519,7 +6524,16 @@ const maybeAdjustPollingCadence = () => {
 const runComputerTurn = () => scheduleComputerTurn({
   getGame: () => ({ gameState, previousCrownCounts }),
   rng: Math.random,
-  applyGame: game => {
+  applyGame: (game, result) => {
+    const now = Date.now();
+    const recap = aiTurnRecap(engineStateFromGame({ gameState, previousCrownCounts }), result.moves, {
+      chanceSamples: result.chanceSamples, id: `turn-${turnHistoryState.nextTurnId}`,
+      turnNumber: turnHistoryState.turns.length + 1, startedAt: now, endedAt: now
+    });
+    if (recap.events.length) {
+      turnHistoryState.nextTurnId++;
+      turnHistoryState.turns.push(recap);
+    }
     applyGameInto(gameState, game.gameState);
     applyGameInto(previousCrownCounts, game.previousCrownCounts);
     resetTransientActionState();
@@ -6527,7 +6541,7 @@ const runComputerTurn = () => scheduleComputerTurn({
   },
   refresh: () => {
     renderGame();
-    if (isGameOver()) openVictoryModal();
+    if (isGameOver() && !hasUnseenOpponentTurn()) openVictoryModal();
     if (vsComputer.error) document.querySelector('[data-ai-retry]')?.focus();
   }
 });
@@ -6565,9 +6579,10 @@ window.dismissComputerSummary = () => {
 // Capture input, including keyboard activation, before the page's action handlers.
 // Retry is the sole control available on a failed AI boundary.
 if (aiModeAvailable()) {
-  // Observation only (needs ?debug): the DOM smoke harness reads state without changing it.
+  // Debug-only smoke hooks: inspect state/history and exercise a normal re-render.
   if (new URLSearchParams(window.location.search).has('debug')) {
-    window.__splendorDebugState = () => ({ gameState, previousCrownCounts });
+    window.__splendorDebugState = () => ({ gameState, previousCrownCounts, turnHistory: structuredClone(turnHistoryState) });
+    window.__splendorDebugRender = renderGame;
   }
   for (const type of ['click', 'pointerdown', 'touchstart', 'keydown']) {
     document.addEventListener(type, event => {

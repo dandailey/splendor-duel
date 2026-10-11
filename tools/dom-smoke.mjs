@@ -81,7 +81,9 @@ function humanView(window) {
 }
 async function aiFinished(window) {
   await until(() => stateOf(window).currentPlayer === 1 && !window.document.querySelector('.ai-thinking'), 'AI returns control to player1');
-  requireThat(window.document.querySelector('.ai-summary'), 'computer summary banner missing');
+  requireThat(window.document.querySelector('#turn-completion-dialog')?.style.display === 'flex', 'computer recap overlay missing');
+  requireThat(window.document.querySelector('#turn-summary-list .turn-event-row'), 'computer recap actions missing');
+  requireThat(!window.document.querySelector('.ai-summary'), 'duplicate computer banner');
   // renderGame attaches event listeners on a later timer.
   await until(() => window.document.querySelector('#switch-players-btn')?._handlerAttached, 'turn listeners attached');
   invariants(window);
@@ -316,6 +318,7 @@ try {
   await check('(e) human DOM turn and AI reply', async () => {
     await until(() => stateOf(beta).currentPlayer === 1 && !beta.document.querySelector('.ai-thinking'), 'human turn');
     await delay(150);
+    beta.document.querySelector('#switch-players-btn').click(); // Acknowledge the preceding Computer turn.
     const before = structuredClone(stateOf(beta));
     // A singleton is a legal row/column take. Choose a gem so hand identity is
     // visible, without triggering pearl/matching-three Privilege decisions.
@@ -343,7 +346,25 @@ try {
     humanView(beta);
     await aiFinished(beta);
     requireThat(JSON.stringify(stateOf(beta).players.player2) !== JSON.stringify(before.players.player2), 'AI player state did not change');
-    return `real DOM: open board, click (${cell.row},${cell.col}) ${cell.color}, Confirm, finish turn; AI replied and player1 view/control retained`;
+    const summary = beta.document.querySelector('#turn-summary-list').innerHTML;
+    const turns = beta.__splendorDebugState().turnHistory.turns;
+    requireThat(turns.at(-1).playerId === 'player2', 'Computer history missing');
+    requireThat(turns.at(-2).playerId === 'player1', 'human history missing');
+    requireThat(beta.document.querySelectorAll('#turn-summary-list .turn-event-row').length === turns.at(-1).events.length, 'recap does not display the recorded Computer actions');
+    await delay(250);
+    requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'flex', 'recap disappeared without dismissal');
+    beta.__splendorDebugRender();
+    requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'flex', 're-render dismissed recap');
+    requireThat(beta.document.querySelector('#turn-summary-list').innerHTML === summary, 're-render changed recap');
+    await until(() => beta.document.querySelector('#switch-players-btn')?._handlerAttached, 'recap dismissal listener');
+    const afterAI = JSON.stringify(stateOf(beta));
+    beta.document.querySelector('#switch-players-btn').click();
+    requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'none', 'Start Turn did not dismiss recap');
+    requireThat(JSON.stringify(stateOf(beta)) === afterAI, 'dismissal changed game state');
+    beta.__splendorDebugRender();
+    await delay(100);
+    requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'none', 'dismissed recap reappeared');
+    return `recap matches Computer history, persists until Start Turn, survives re-render, and stays dismissed; real DOM: open board, click (${cell.row},${cell.col}) ${cell.color}, Confirm, finish turn; AI replied and player1 view/control retained`;
   });
 } catch (error) {
   failures++;

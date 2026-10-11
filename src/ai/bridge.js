@@ -1,6 +1,7 @@
 import { chooseMove } from './index.js';
 import { applyMoveWithEvents, mover, isTerminal, winner } from '../engine/turn.js';
 import { crownsOf } from '../engine/rules-misc.js';
+import { spiralOrder } from '../engine/tokens.js';
 import { TOKEN_SUPPLY } from '../engine/setup.js';
 
 const IDS = ['player1', 'player2'];
@@ -112,25 +113,112 @@ export function runAiTurn(game, { level, rng, aiPlayerId = 'player2', maxDecisio
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
   if (!Number.isSafeInteger(maxDecisions) || maxDecisions < 1) throw new RangeError('maxDecisions must be a positive integer');
   let state = engineStateFromGame(game);
-  const moves = [], summary = [], events = [];
+  const moves = [], summary = [], events = [], chanceSamples = [];
+  const chanceRng = () => { const sample = rng(); chanceSamples.push(sample); return sample; };
   while (mover(state) === aiPlayerId) {
     if (moves.length >= maxDecisions) throw new Error(`AI turn exceeded maxDecisions (${maxDecisions})`);
     const move = chooseMove(state, { level, rng });
     if (!move) throw new Error('AI has no legal move in an unfinished turn');
-    const result = applyMoveWithEvents(state, move, rng);
+    const result = applyMoveWithEvents(state, move, chanceRng);
     summary.push(...actionSummary(state, move, result.events));
     moves.push(structuredClone(move));
     events.push(...result.events);
     state = result.state;
   }
-  return { game: gameFromEngineState(state), moves, summary, events, finished: isTerminal(state), winnerId: winner(state) };
+  return { game: gameFromEngineState(state), moves, summary, events, chanceSamples, finished: isTerminal(state), winnerId: winner(state) };
 }
 
-/** Engine events omit board token colors, payment/source details, some card
- * previews, and the page's history IDs/timestamps. They cannot faithfully form
- * recap entries without snapshot/history context; callers should use summary.
+// These projections match main.js summarizeCard/aggregateTokens/summarizeSpend.
+// In particular, the page's card preview does not include wildColorStack.
+const recapCard = card => ({
+  id: card.id, ...(card.level === undefined ? {} : { level: card.level }),
+  ...(card.color === undefined ? {} : { color: card.color }), points: card.points || 0,
+  crowns: card.crowns || 0, ability: card.ability || null,
+  isDouble: !!card.isDouble, costs: { ...card.costs }
+});
+const recapSpend = counts => Object.keys(counts).filter(color => counts[color] > 0)
+  .map(color => ({ color, count: counts[color] }));
+const recapTokens = colors => {
+  const counts = {};
+  for (const color of colors) counts[color] = (counts[color] || 0) + 1;
+  return recapSpend(counts);
+};
+
+/** Replay ordered decisions with the SAME chance samples used during play.
+ * Metadata is caller supplied, keeping this projection deterministic and pure.
+ * A context-free legacy events call still returns null.
  */
-export function aiTurnRecap(events) {
-  void events;
-  return null;
+export function aiTurnRecap(before, moves, {
+  rng, chanceSamples = [], id = 'turn-1', turnNumber = 1,
+  startedAt = 0, endedAt = startedAt
+} = {}) {
+  if (!before?.players || !Array.isArray(moves)) return null;
+  let state = structuredClone(before), sampleIndex = 0;
+  const replayRng = rng ?? (() => {
+    if (sampleIndex >= chanceSamples.length) throw new Error('Recap replay requires recorded chance samples');
+    return chanceSamples[sampleIndex++];
+  });
+  const turn = { id, playerId: `player${state.currentPlayer}`, turnNumber,
+    startedAt, endedAt, status: 'completed', events: [] };
+  const emit = (type, payload) => turn.events.push({
+    id: `${id}-event-${turn.events.length + 1}`, type, timestamp: endedAt, ...payload
+  });
+  let abilityCard = state.players[turn.playerId].cards.at(-1);
+  for (const move of moves) {
+    const pre = state;
+    if (mover(pre) !== turn.playerId) throw new Error('Recap moves must belong to one player');
+    const result = applyMoveWithEvents(pre, move, replayRng);
+    state = result.state;
+    const other = turn.playerId === 'player1' ? 'player2' : 'player1';
+    for (const event of result.events) {
+      switch (event.type) {
+        case 'tokens_taken': {
+          const colors = event.cells.map(([r, c]) => pre.board[r][c]);
+          const scrollReasons = [];
+          if (colors.length === 3 && colors.every(c => c === colors[0])) scrollReasons.push('three_match');
+          if (colors.filter(c => c === 'pearl').length >= 2) scrollReasons.push('two_pearls');
+          emit('tokens_taken', { tokens: recapTokens(colors), scrollReasons,
+            scrollAwardedTo: scrollReasons.length ? other : null, bonusColor: null });
+          break;
+        }
+        case 'privilege_used':
+          emit('scroll_token', { token: pre.board[event.cell[0]][event.cell[1]] }); break;
+        case 'board_refilled': {
+          const colors = spiralOrder().filter(([r, c]) => pre.board[r][c] === null)
+            .map(([r, c]) => state.board[r][c]).filter(Boolean);
+          emit('board_refilled', { tokensPlaced: colors.length, tokens: recapTokens(colors),
+            scrollAwardedTo: state.players[other].privileges > pre.players[other].privileges ? other : null });
+          break;
+        }
+        case 'bought':
+          abilityCard = event.card;
+          emit('card_purchased', { card: recapCard(event.card), fromReserve: move.source === 'reserve',
+            tokensSpent: recapSpend(move.payment.spend ?? move.payment), ability: event.card.ability || null }); break;
+        case 'card_reserved': {
+          const card = pre.pyramid[`level${move.level}`][move.index];
+          // Human deck reservations use source/level to render a card back.
+          // Omit the hidden identity altogether from the Computer's record.
+          emit('card_reserved', { card: move.source === 'deck' ? null : recapCard(card),
+            goldAwarded: true, source: move.source, ...(move.source === 'deck' ? { level: move.level } : {}) });
+          break;
+        }
+        case 'royal_acquired':
+          abilityCard = pre.royalCards.find(card => card.id === event.cardId);
+          emit('royal_acquired', { card: recapCard(abilityCard) }); break;
+        case 'bonus_token_taken':
+          emit('bonus_token_collected', { tokens: recapTokens([event.color]),
+            scrollAwardedTo: null, scrollReasons: [], bonusColor: event.color }); break;
+        case 'token_stolen': emit('token_stolen', { color: event.color }); break;
+        case 'tokens_discarded': emit('tokens_discarded', { tokens: recapSpend(event.tokens) }); break;
+        case 'repeat_turn_awarded':
+        case 'scroll_gained':
+        case 'scroll_unavailable': emit(event.type, { card: recapCard(abilityCard) }); break;
+        case 'game_over': turn.status = 'victory'; break;
+        // turn_ended/ability_pending/ability_skipped are engine control events,
+        // and have no counterpart in the page's action history.
+      }
+    }
+  }
+  if (turn.events.length) turn.updatedAt = endedAt;
+  return turn;
 }

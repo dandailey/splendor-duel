@@ -75,7 +75,7 @@ export function scheduleComputerTurn({ getGame, applyGame, refresh, rng, schedul
     if (!state.enabled || state.generation !== generation) return;
     try {
       const result = runTurn(getGame(), { level: state.level, aiPlayerId: state.aiPlayerId, rng });
-      applyGame(result.game);
+      applyGame(result.game, result);
       state.summary = result.summary;
     } catch (error) {
       // Keep the original AI boundary intact so a retry cannot repeat a partial turn.
