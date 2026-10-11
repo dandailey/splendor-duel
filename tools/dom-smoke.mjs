@@ -373,7 +373,12 @@ try {
     requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'flex', 'recap disappeared without dismissal');
     beta.__splendorDebugRender();
     requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'flex', 're-render dismissed recap');
-    requireThat(beta.document.querySelector('#turn-summary-list').innerHTML === summary, 're-render changed recap');
+    {
+      // SVG gradient ids carry a global render counter (e.g. pearlGradient96 -> pearlGradient97); ignore it.
+      const normalize = html => html.replace(/(Gradient)\d+/g, '$1#');
+      const after = beta.document.querySelector('#turn-summary-list').innerHTML;
+      requireThat(normalize(after) === normalize(summary), 're-render changed recap');
+    }
     await until(() => beta.document.querySelector('#switch-players-btn')?._handlerAttached, 'recap dismissal listener');
     const savedStorage = copyStorage(beta);
     const expected = plainState(beta);
