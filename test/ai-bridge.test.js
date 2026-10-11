@@ -93,6 +93,15 @@ test('AI turns from many seeded mid-game positions are immutable, deterministic 
 
 test('blind reservation summary hides identity and recap honestly reports missing context', () => {
   const state = fresh(9);
+  // Leave only gold on the board so sampling exercises reservations without
+  // depending on how many token-take moves or gold chance outcomes exist.
+  state.board.forEach(row => row.forEach((color, col) => {
+    if (color && color !== 'gold') {
+      state.bag[color] += 1;
+      row[col] = null;
+    }
+  }));
+  assert.deepEqual(checkInvariants(state), []);
   const game = live(state);
   let result;
   for (let seed = 0; seed < 100; seed++) {

@@ -140,6 +140,27 @@ test('take and reserve above ten force discard; reserved abilities do not execut
   }
 });
 
+test('reserve moves omit gold choices and applyMove forwards rng to select the outcome', () => {
+  const state = freeze(fixture({}, [[0, 0, 'gold'], [2, 2, 'gold'], [4, 4, 'gold']]));
+  const reserves = legalMoves(state).filter(move => move.type === 'reserve');
+  assert.equal(reserves.length, 3 + 4 + 5 + 3);
+  for (const move of reserves) {
+    assert.deepEqual(Object.keys(move), move.source === 'deck'
+      ? ['type', 'source', 'level'] : ['type', 'source', 'level', 'index']);
+  }
+  for (const [sample, goldCell] of [[0, [0, 0]], [0.5, [2, 2]], [0.999, [4, 4]]]) {
+    let calls = 0;
+    const result = applyMoveWithEvents(state, freeze(reserves[0]), () => { calls += 1; return sample; });
+    assert.equal(calls, 1);
+    assert.deepEqual(result.events.find(event => event.type === 'card_reserved').goldCell, goldCell);
+    assert.equal(result.state.board[goldCell[0]][goldCell[1]], null);
+    assert.deepEqual(checkInvariants(result.state), []);
+  }
+  assert.throws(() => applyMove(state, reserves[0]), /requires chance.rng or chance.goldCell/);
+  assert.throws(() => applyMove(state, { ...reserves[0], goldCell: [0, 0] }, mulberry32(2)), /Illegal move/);
+  assert.throws(() => applyMove(state, { type: 'reserve', source: 'deck', level: 1, index: 0 }, mulberry32(2)), /Illegal move/);
+});
+
 test('pass exists only without mandatory moves and skips discard and victory as specified', () => {
   const state = fixture({ player1: { blue: 4, white: 4, pearl: 2, gold: 1 } }, []);
   for (const level of [1, 2, 3]) {

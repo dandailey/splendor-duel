@@ -146,8 +146,9 @@ function advance(state, events, royalsRemaining, ability = null, cardColor = nul
   return endTurn(state, events);
 }
 
-/** RNG is consumed only by refill. Every accepted move is checked against the
- * enumerated decisions, including payment/discard caps and pending choices.
+/** RNG is consumed by refill and reserve gold selection. Every accepted move
+ * is checked against the enumerated decisions, including payment/discard caps
+ * and pending choices.
  */
 export function applyMoveWithEvents(state, move, rng, options = {}) {
   if (!legalMoves(state, options).some(candidate => equal(candidate, move))) throw new Error('Illegal move');
@@ -192,7 +193,7 @@ export function applyMoveWithEvents(state, move, rng, options = {}) {
       if (move.type === 'take') {
         next = applyTake(next, id, move.cells);
         events.push({ type: 'tokens_taken', playerId: id, cells: structuredClone(move.cells) });
-      } else if (move.type === 'reserve') record(applyReserve(next, id, move));
+      } else if (move.type === 'reserve') record(applyReserve(next, id, move, { rng }));
       else if (move.type === 'buy') {
         const result = applyBuy(next, id, move);
         ability = result.events[0].card.ability;

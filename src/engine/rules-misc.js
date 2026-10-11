@@ -16,33 +16,50 @@ function playerOf(state, playerId) {
   return state.players[playerId];
 }
 
-/** Numeric internal levels, crossed with gold cells in row-major order. */
+/** Numeric internal levels; gold availability permits each card option once. */
 export function legalReserves(state, playerId) {
   if (playerOf(state, playerId).reserves.length >= 3) return [];
-  const cells = goldCells(state.board);
+  if (!goldCells(state.board).length) return [];
   const options = [];
   for (const level of LEVELS) {
     state.pyramid[`level${level}`].forEach((card, index) => {
-      if (card) for (const goldCell of cells) options.push({ source: 'pyramid', level, index, goldCell: [...goldCell] });
+      if (card) options.push({ source: 'pyramid', level, index });
     });
     if (state.decks[`level${level}`].length) {
-      for (const goldCell of cells) options.push({ source: 'deck', level, goldCell: [...goldCell] });
+      options.push({ source: 'deck', level });
     }
   }
   return options;
 }
 
-/** Deck order is already resolved in state. No chance outcome is needed here. */
+/** Official rules allow choosing gold; Daniel's ruling deliberately follows the
+ * live game: take a uniformly random gold cell instead. Deck order is already
+ * resolved in state. Supply chance.goldCell to fix the outcome for search/tests,
+ * otherwise chance.rng must supply a sample in [0, 1).
+ */
 export function applyReserve(state, playerId, option, chance) {
-  void chance;
   if (!option || !legalReserves(state, playerId).some(candidate =>
     candidate.source === option.source && candidate.level === option.level &&
-    (candidate.source === 'deck' || candidate.index === option.index) &&
-    isCell(option.goldCell) && candidate.goldCell.every((n, i) => n === option.goldCell[i]))) {
+    (candidate.source === 'deck' ? !Object.hasOwn(option, 'index') : candidate.index === option.index)) ||
+    Object.hasOwn(option, 'goldCell')) {
     throw new Error('Illegal reserve');
   }
+  const cells = goldCells(state.board);
+  let goldCell;
+  if (chance && Object.hasOwn(chance, 'goldCell')) {
+    goldCell = chance.goldCell;
+    if (!isCell(goldCell) || !cells.some(cell => cell.every((n, i) => n === goldCell[i]))) {
+      throw new Error('Illegal reserve gold cell');
+    }
+  } else {
+    if (typeof chance?.rng !== 'function') throw new TypeError('Reserve requires chance.rng or chance.goldCell');
+    const sample = chance.rng();
+    if (!Number.isFinite(sample) || sample < 0 || sample >= 1) throw new RangeError('Invalid rng sample');
+    goldCell = cells[Math.floor(sample * cells.length)];
+  }
   const next = structuredClone(state);
-  const { source, level, index, goldCell: [row, col] } = option;
+  const { source, level, index } = option;
+  const [row, col] = goldCell;
   const key = `level${level}`;
   let card;
   if (source === 'deck') card = next.decks[key].shift();

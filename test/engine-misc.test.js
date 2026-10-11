@@ -46,22 +46,25 @@ function transition(state, fn) {
   return result;
 }
 
-test('reserve options cross every visible card and nonempty deck with each gold cell', () => {
+test('reserve options list every visible card and nonempty deck once, without gold choices', () => {
   const state = freeze(fixture([[0, 0, 'gold'], [4, 4, 'gold']]));
   const options = legalReserves(state, 'player1');
-  assert.equal(options.length, (3 + 4 + 5 + 3) * 2);
+  assert.equal(options.length, 3 + 4 + 5 + 3);
   assert.deepEqual(options.slice(0, 2), [
-    { source: 'pyramid', level: 1, index: 0, goldCell: [0, 0] },
-    { source: 'pyramid', level: 1, index: 0, goldCell: [4, 4] }
+    { source: 'pyramid', level: 1, index: 0 },
+    { source: 'pyramid', level: 1, index: 1 }
   ]);
   for (const option of options) {
     freeze(option);
-    const { state: next, events } = transition(state, s => applyReserve(s, 'player1', option));
+    const { state: next, events } = transition(state, s => applyReserve(s, 'player1', option, freeze({ goldCell: [4, 4] })));
     const key = `level${option.level}`;
     assert.deepEqual(next.players.player1.reserves[0], option.source === 'deck' ? state.decks[key][0] : state.pyramid[key][option.index]);
     assert.equal(next.players.player1.tokens.gold, 1);
-    assert.equal(next.board[option.goldCell[0]][option.goldCell[1]], null);
-    assert.equal(next.board[option.goldCell[0] === 0 ? 4 : 0][option.goldCell[1] === 0 ? 4 : 0], 'gold');
+    assert.equal(next.board[4][4], null);
+    assert.equal(next.board[0][0], 'gold');
+    assert.deepEqual(events[0].goldCell, [4, 4]);
+    assert.equal(Object.hasOwn(option, 'goldCell'), false);
+    assert.equal(Object.hasOwn(option, 'index'), option.source === 'pyramid');
     assert.equal(next.decks[key].length, state.decks[key].length - 1);
     assert.deepEqual(next.turnState, state.turnState);
     assert.equal(events[0].type, 'card_reserved');
@@ -74,12 +77,13 @@ test('reserve rejects full reserves, absent gold, empty decks and invalid option
   const state = fixture([[2, 2, 'gold']]);
   state.players.player2.cards.push(...state.decks.level1.splice(0));
   assert.equal(legalReserves(state, 'player1').some(o => o.source === 'deck' && o.level === 1), false);
-  const { state: next } = transition(state, s => applyReserve(s, 'player1', { source: 'pyramid', level: 1, index: 1, goldCell: [2, 2] }));
+  const { state: next } = transition(state, s => applyReserve(s, 'player1', { source: 'pyramid', level: 1, index: 1 }, { goldCell: [2, 2] }));
   assert.deepEqual(next.pyramid.level1, [state.pyramid.level1[0], state.pyramid.level1[2]]);
-  for (const option of [null, { source: 'deck', level: 1, goldCell: [2, 2] },
-    { source: 'pyramid', level: 2, index: -1, goldCell: [2, 2] },
-    { source: 'deck', level: 2, goldCell: [0, 0] }]) {
-    assert.throws(() => applyReserve(state, 'player1', option), /Illegal reserve/);
+  for (const option of [null, { source: 'deck', level: 1 },
+    { source: 'pyramid', level: 2, index: -1 },
+    { source: 'deck', level: 2, index: 0 },
+    { source: 'deck', level: 2, goldCell: [2, 2] }]) {
+    assert.throws(() => applyReserve(state, 'player1', option, { goldCell: [2, 2] }), /Illegal reserve/);
   }
   assert.deepEqual(legalReserves(fixture(), 'player1'), []);
   const full = fixture([[0, 0, 'gold']]);
@@ -89,10 +93,53 @@ test('reserve rejects full reserves, absent gold, empty decks and invalid option
 
 test('reserve can exceed ten tokens without discarding or resolving reserved abilities', () => {
   const state = fixture([[0, 0, 'gold']], { player1: { blue: 4, white: 4, pearl: 2 } });
-  const { state: next } = transition(state, s => applyReserve(s, 'player1', legalReserves(s, 'player1')[0]));
+  const { state: next } = transition(state, s => applyReserve(s, 'player1', legalReserves(s, 'player1')[0], { rng: mulberry32(2) }));
   assert.equal(tokenTotal(next, 'player1'), 11);
   assert.deepEqual(next.turnState, state.turnState);
   assert.equal(next.players.player1.cards.length, 0);
+});
+
+test('reserve samples three gold cells roughly uniformly over 300 seeded trials', () => {
+  const state = freeze(fixture([[0, 0, 'gold'], [2, 2, 'gold'], [4, 4, 'gold']]));
+  const option = freeze(legalReserves(state, 'player1')[0]);
+  const rng = mulberry32(8);
+  const counts = { '0,0': 0, '2,2': 0, '4,4': 0 };
+  for (let trial = 0; trial < 300; trial += 1) {
+    const result = transition(state, s => applyReserve(s, 'player1', option, { rng }));
+    counts[result.events[0].goldCell.join(',')] += 1;
+    assert.equal(result.state.players.player1.tokens.gold, 1);
+    assert.equal(result.state.board.flat().filter(color => color === 'gold').length, 2);
+  }
+  for (const count of Object.values(counts)) {
+    assert.ok(count / 300 >= 0.20 && count / 300 <= 0.47, JSON.stringify(counts));
+  }
+});
+
+test('reserve fixed chance outcomes override rng and reject invalid gold cells', () => {
+  const state = freeze(fixture([[0, 0, 'gold'], [2, 2, 'gold'], [4, 4, 'gold']]));
+  for (const option of [legalReserves(state, 'player1')[0], { source: 'deck', level: 2 }]) {
+    for (const goldCell of [[0, 0], [2, 2], [4, 4]]) {
+      const chance = freeze({ goldCell, rng: () => assert.fail('Fixed outcomes must not sample rng') });
+      const result = transition(state, s => applyReserve(s, 'player1', freeze(option), chance));
+      assert.deepEqual(result.events[0].goldCell, goldCell);
+      assert.equal(result.state.board[goldCell[0]][goldCell[1]], null);
+      assert.deepEqual(chance.goldCell, goldCell);
+    }
+  }
+  for (const goldCell of [null, [1, 1], [5, 5], [0], [0.5, 0], 'gold']) {
+    assert.throws(() => applyReserve(state, 'player1', legalReserves(state, 'player1')[0], { goldCell }), /Illegal reserve gold cell/);
+  }
+});
+
+test('reserve requires a chance outcome or valid caller rng, even with only one gold cell', () => {
+  const state = freeze(fixture([[2, 2, 'gold']]));
+  const option = freeze(legalReserves(state, 'player1')[0]);
+  for (const chance of [undefined, {}, { rng: 0 }]) {
+    assert.throws(() => applyReserve(state, 'player1', option, chance), /requires chance.rng or chance.goldCell/);
+  }
+  for (const sample of [-0.01, 1, NaN, Infinity, '0.5', undefined]) {
+    assert.throws(() => applyReserve(state, 'player1', option, { rng: () => sample }), /Invalid rng sample/);
+  }
 });
 
 test('again queues cumulatively; scroll uses pool, transfers from opponent, and respects cap', () => {
@@ -267,7 +314,7 @@ test('seeded mixed sequences preserve all invariants, immutability and determini
       if (kind === 0 && legalReserves(state, id).length) {
         const options = legalReserves(state, id);
         const option = options[Math.floor(rng() * options.length)];
-        state = transition(state, s => applyReserve(s, id, option)).state;
+        state = transition(state, s => applyReserve(s, id, option, { rng })).state;
       } else if (kind === 1) {
         const choices = pendingAbilityChoices(state, id, 'steal');
         state = transition(state, s => applyAbility(s, id, 'steal', choices.length ? choices[Math.floor(rng() * choices.length)] : null)).state;

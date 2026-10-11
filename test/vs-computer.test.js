@@ -10,12 +10,10 @@ import { gameFromEngineState, engineStateFromGame } from '../src/ai/bridge.js';
 import { checkInvariants } from '../src/engine/invariants.js';
 import { mulberry32 } from './helpers/rng.js';
 
-test('Computer mode only appears for beta paths or an exact ai query key', () => {
+test('Computer mode is on everywhere except with the ?noai kill switch', () => {
   for (const [pathname, search, expected] of [
-    ['/', '', false], ['/play', '?session=abc', false], ['/beta/', '', true],
-    ['/BETA/game', '', true], ['/alphabetagame', '', true], ['/', '?ai', true],
-    ['/', '?ai=0', true], ['/', '?session=abc&ai=5', true],
-    ['/', '?AI=1', false], ['/', '?notai=1', false], ['/', '?x=beta', false]
+    ['/', '', true], ['/splendor_duel/', '?session=abc', true], ['/beta/', '', true],
+    ['/', '?noai', false], ['/', '?x=1&noai=1', false], ['/', '?NOAI', true], ['/', '?ai=0', true]
   ]) assert.equal(aiModeAvailable({ pathname, search }), expected, `${pathname}${search}`);
   assert.equal(aiModeAvailable(undefined), false);
 });

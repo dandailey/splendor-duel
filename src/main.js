@@ -6619,8 +6619,10 @@ window.dismissComputerSummary = () => {
 // Capture input, including keyboard activation, before the page's action handlers.
 // Retry is the sole control available on a failed AI boundary.
 if (aiModeAvailable()) {
-  // Observation only: the DOM smoke harness reads state without changing it.
-  window.__splendorDebugState = () => ({ gameState, previousCrownCounts });
+  // Observation only (needs ?debug): the DOM smoke harness reads state without changing it.
+  if (new URLSearchParams(window.location.search).has('debug')) {
+    window.__splendorDebugState = () => ({ gameState, previousCrownCounts });
+  }
   for (const type of ['click', 'pointerdown', 'touchstart', 'keydown']) {
     document.addEventListener(type, event => {
       if (!vsComputer.enabled) return;

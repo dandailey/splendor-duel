@@ -1,8 +1,9 @@
 import { LEVELS } from './index.js';
 import { runAiTurn } from './bridge.js';
 
+// Computer mode is part of the live game. `?noai` is a kill switch (e.g. to compare against plain hotseat).
 export function aiModeAvailable(location = globalThis.location) {
-  return Boolean(location && (/beta/i.test(location.pathname) || new URLSearchParams(location.search).has('ai')));
+  return Boolean(location) && !new URLSearchParams(location.search).has('noai');
 }
 
 export const LEVEL_LABELS = Object.freeze(Object.fromEntries(

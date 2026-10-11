@@ -104,21 +104,25 @@ try {
   const original = await readFile(`${dist}/index.html`, 'utf8');
   requireThat(/<script\b[^>]*type="module"/.test(original), 'expected bundled module script');
   const html = original.replace(/(<script\b[^>]*\btype=)"module"/g, '$1"text/javascript"');
-  const beta = openPage(html, 'beta', 'https://danieldailey.com/splendor_duel/index.beta.html');
+  const beta = openPage(html, 'beta', 'https://danieldailey.com/splendor_duel/index.html?debug');
   await until(() => beta.document.querySelector('.game-container'), 'beta page initialization');
-  await check('(a) beta mode dialog', async () => {
+  await check('(a) mode dialog', async () => {
     await until(() => beta.document.querySelector('#mode-selection-modal')?.style.display === 'flex', 'mode dialog shown');
     requireThat([...beta.document.querySelectorAll('#mode-selection-modal button')].some(b => b.textContent === 'Play vs Computer'), 'Play vs Computer missing');
     return 'visible dialog includes Play vs Computer';
   });
-  await check('(b) production gate/layout', async () => {
-    const prod = openPage(html, 'production', 'https://danieldailey.com/splendor_duel/index.html');
-    await until(() => prod.document.querySelector('.game-container'), 'production page initialization');
+  await check('(b) kill switch and debug hook gating', async () => {
+    const off = openPage(html, 'noai', 'https://danieldailey.com/splendor_duel/index.html?noai');
+    await until(() => off.document.querySelector('.game-container'), 'noai page initialization');
     await delay(550);
-    requireThat(![...prod.document.querySelectorAll('button')].some(b => b.textContent === 'Play vs Computer'), 'computer button leaked into production');
-    requireThat(!prod.__splendorDebugState, 'debug hook leaked into production');
-    requireThat(comparableLayout(beta) === comparableLayout(prod), 'layout differs beyond computer controls and mode-dialog visibility');
-    return 'no computer button/debug hook; otherwise identical DOM layout with identical seed';
+    requireThat(![...off.document.querySelectorAll('button')].some(b => b.textContent === 'Play vs Computer'), 'computer button present despite ?noai');
+    const plain = openPage(html, 'plain', 'https://danieldailey.com/splendor_duel/index.html');
+    await until(() => plain.document.querySelector('.game-container'), 'plain page initialization');
+    await delay(550);
+    requireThat([...plain.document.querySelectorAll('button')].some(b => b.textContent === 'Play vs Computer'), 'computer button missing on the plain page');
+    requireThat(!plain.__splendorDebugState, 'debug hook present without ?debug');
+    requireThat(Boolean(beta.__splendorDebugState), 'debug hook missing with ?debug');
+    return '?noai removes the button; debug hook only with ?debug';
   });
   await check('(c) startVsComputer(3)/human view', async () => {
     beta.startVsComputer(3);
