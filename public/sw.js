@@ -1,7 +1,7 @@
 // Splendor Duel service worker: offline shell only.
 // Network-first for the page so game updates always arrive; cached copy is the offline fallback.
 // Never touches GameSync (different path and origin-scope) or cross-origin requests.
-const CACHE = 'splendor-duel-shell-v1';
+const CACHE = 'splendor-duel-shell-v2';
 const SHELL = [
   './',
   'manifest.webmanifest',
@@ -33,7 +33,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          if (res.ok) {
+          // Only the real game page refreshes the offline shell (not index.beta.html or other pages).
+          const scopePath = new URL('./', self.location.href).pathname;
+          const isShellPage = url.pathname === scopePath || url.pathname === scopePath + 'index.html';
+          if (res.ok && isShellPage) {
             const copy = res.clone();
             caches.open(CACHE).then((cache) => cache.put('./', copy));
           }

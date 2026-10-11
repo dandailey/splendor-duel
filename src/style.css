@@ -5077,3 +5077,35 @@ html.tab-inactive .reserved-section.reserved-affordable {
 .discard-pending-message span {
   display: block;
 }
+
+/* Local Computer mode; elements are only rendered on beta / ?ai pages. */
+.ai-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: #e8f0fa;
+  color: #172c46;
+}
+.ai-summary button { cursor: pointer; font-size: 22px; }
+.ai-thinking {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+.ai-thinking > div {
+  padding: 24px;
+  border-radius: 12px;
+  background: white;
+  color: #172c46;
+}
+.ai-thinking button { display: block; margin-top: 12px; }
+#ai-level-picker:not([hidden]) { display: grid; gap: 10px; margin-top: 12px; }
+#ai-level-picker select { padding: 8px; font-size: 16px; }

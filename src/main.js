@@ -1,4 +1,6 @@
 import "./style.css";
+import { aiModeAvailable, vsComputer, enableComputer, disableComputer, applyGameInto,
+  rememberedLevel, rememberLevel, levelPickerHtml, summaryBannerHtml, scheduleComputerTurn } from './ai/vs-computer.js';
 import cardsCsv from "./splendor_cards.csv?raw";
 import { buildPushMeta, buildLobbyMeta } from "./push-meta.js";
 import { nativePushAvailable, nativePush } from "./native-push.js";
@@ -753,6 +755,10 @@ const initializeGame = () => {
   // Initialize turn display state to match game state
   turnDisplayState.activePlayerId = gameState.currentPlayer === 1 ? 'player1' : 'player2';
   turnDisplayState.opponentPlayerId = gameState.currentPlayer === 1 ? 'player2' : 'player1';
+  if (vsComputer.enabled) {
+    turnDisplayState.activePlayerId = 'player1';
+    turnDisplayState.opponentPlayerId = 'player2';
+  }
   
   // Initialize previous crown counts
   previousCrownCounts.player1 = 0;
@@ -3253,6 +3259,10 @@ const getVictoryModalMarkup = () => {
 };
 
 const startNewGameFromGameOver = async () => {
+  if (vsComputer.enabled) {
+    window.startVsComputer(vsComputer.level);
+    return;
+  }
   if (rematchInProgress) return;
   rematchInProgress = true;
 
@@ -3324,6 +3334,8 @@ const generateGameLayout = () => {
         </div>
         <button class="settings-btn" id="settings-btn" title="Game settings" onclick="window.showSettings()">⚙</button>
       </div>
+      ${vsComputer.enabled ? summaryBannerHtml(vsComputer.summary) : ''}
+      ${vsComputer.enabled && (vsComputer.busy || vsComputer.error) ? `<div class="ai-thinking" role="status" aria-live="polite"><div>${vsComputer.error || 'Computer is thinking...'}${vsComputer.error ? '<button class="action-button" data-ai-retry onclick="window.retryComputerTurn()">Retry computer turn</button>' : ''}</div></div>` : ''}
       <div class="sync-turn-warning" id="turn-guard-message" aria-live="polite"></div>
       <!-- Top Bar: Token Board (left) and Opponent Stats (right) -->
       <div class="top-bar">
@@ -3577,7 +3589,7 @@ const generateGameLayout = () => {
           <div class="mode-selection-buttons">
             <button class="action-button" onclick="window.selectLocalMode()">Local Hotseat</button>
             <button class="action-button" onclick="window.hostOnlineGame()">Online – Host New Game</button>
-            <button class="action-button" onclick="window.showJoinDialog()">Online – Join Game</button>
+            <button class="action-button" onclick="window.showJoinDialog()">Online – Join Game</button>${aiModeAvailable() ? '<button class="action-button" onclick="window.showComputerLevelPicker()">Play vs Computer</button><div id="ai-level-picker" hidden></div>' : ''}
           </div>
           <div style="margin-top: 15px; text-align: center;">
             <button class="btn-cancel" onclick="window.closeModeSelection()" style="font-size: 12px; padding: 6px 12px;">Close</button>
@@ -5568,6 +5580,7 @@ const showWaitingForOpponent = () => {
 };
 
 const handleTurnCompletionAction = async () => {
+  if (vsComputer.enabled && (vsComputer.busy || gameState.currentPlayer !== 1 || isGameOver())) return;
   const mode = turnDialogMode || (syncContext.enabled ? 'online_end' : 'local_end');
   if (mode === 'online_end') {
     if (turnHandoffInProgress) return;
@@ -5937,6 +5950,13 @@ window.minimizeDiscardModal = minimizeDiscardModal;
 window.maximizeDiscardModal = maximizeDiscardModal;
 
 const switchPlayers = () => {
+  if (vsComputer.enabled && !syncContext.enabled) {
+    if (isGameOver() || vsComputer.busy || gameState.currentPlayer !== 1) return;
+    gameState.currentPlayer = 2;
+    resetCurrentTurnState();
+    runComputerTurn();
+    return;
+  }
   // Swap the display state
   const temp = turnDisplayState.activePlayerId;
   turnDisplayState.activePlayerId = turnDisplayState.opponentPlayerId;
@@ -6549,8 +6569,77 @@ const maybeAdjustPollingCadence = () => {
 };
 
 // UI handler functions (exposed to window for onclick handlers)
+// Local Computer mode: all UI glue stays separate from online handoff/sync.
+const runComputerTurn = () => scheduleComputerTurn({
+  getGame: () => ({ gameState, previousCrownCounts }),
+  rng: Math.random,
+  applyGame: game => {
+    applyGameInto(gameState, game.gameState);
+    applyGameInto(previousCrownCounts, game.previousCrownCounts);
+    resetTransientActionState();
+    if (!isGameOver()) resetCurrentTurnState();
+  },
+  refresh: () => {
+    renderGame();
+    if (isGameOver()) openVictoryModal();
+    if (vsComputer.error) document.querySelector('[data-ai-retry]')?.focus();
+  }
+});
+
+window.showComputerLevelPicker = () => {
+  if (!aiModeAvailable()) return;
+  const picker = document.getElementById('ai-level-picker');
+  if (picker) {
+    picker.innerHTML = levelPickerHtml(rememberedLevel());
+    picker.hidden = false;
+  }
+};
+window.startVsComputer = level => {
+  if (!aiModeAvailable() || vsComputer.busy) return;
+  enableComputer(level);
+  rememberLevel(level);
+  stopPolling();
+  syncContext.enabled = false;
+  syncContext.localPlayerId = null;
+  syncContext.sessionId = null;
+  const url = new URL(window.location);
+  url.searchParams.delete('session');
+  url.searchParams.delete('role');
+  window.history.replaceState({}, '', url);
+  initializeGame();
+  renderGame();
+  if (gameState.currentPlayer === 2) runComputerTurn();
+};
+window.retryComputerTurn = runComputerTurn;
+window.dismissComputerSummary = () => {
+  vsComputer.summary = [];
+  document.querySelector('.ai-summary')?.remove();
+};
+
+// Capture input, including keyboard activation, before the page's action handlers.
+// Retry is the sole control available on a failed AI boundary.
+if (aiModeAvailable()) {
+  // Observation only: the DOM smoke harness reads state without changing it.
+  window.__splendorDebugState = () => ({ gameState, previousCrownCounts });
+  for (const type of ['click', 'pointerdown', 'touchstart', 'keydown']) {
+    document.addEventListener(type, event => {
+      if (!vsComputer.enabled) return;
+      if ((vsComputer.busy || gameState.currentPlayer === 2) && !isGameOver()) {
+        if (!vsComputer.busy && event.target.closest?.('[data-ai-retry]')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      // Existing online handlers remain unchanged; relinquish local AI mode before entering them.
+      if (type === 'click' && event.target.closest?.('#mode-selection-modal button')?.getAttribute('onclick')?.match(/hostOnlineGame|showJoinDialog/)) {
+        disableComputer();
+      }
+    }, { capture: true, passive: false });
+  }
+}
+
 window.showModeSelection = () => {
-  if (!syncContext.serviceAvailable) return;
+  if (!syncContext.serviceAvailable && !aiModeAvailable()) return;
   const modal = document.getElementById('mode-selection-modal');
   if (modal) {
     modal.style.display = 'flex';
@@ -6575,6 +6664,11 @@ window.closeModeSelection = () => {
 };
 
 window.selectLocalMode = () => {
+  if (vsComputer.enabled) {
+    disableComputer();
+    initializeGame();
+    renderGame();
+  }
   syncContext.enabled = false;
   syncContext.localPlayerId = null;
   updateSyncUI();
@@ -6778,7 +6872,14 @@ window.showSettings = () => {
   const content = document.getElementById('settings-content');
   
   if (!modal || !content) return;
-  
+  if (vsComputer.enabled) {
+    content.innerHTML = `<p>You are playing vs Computer (level ${vsComputer.level})</p><button class="action-button" onclick="window.closeSettings(); window.startVsComputer(${vsComputer.level})">New game vs Computer</button><button class="action-button" onclick="window.closeSettings(); window.showModeSelection()">Choose game mode</button>`;
+    modal.style.display = 'flex';
+    modal.style.pointerEvents = 'auto';
+    document.querySelector('.game-container')?.classList.add('dialog-blocking');
+    return;
+  }
+
   const trimmedSessionId = trimSessionId(syncContext.sessionId);
   const shareUrl = buildShareUrl(syncContext.sessionId);
   const shareQrSrc = buildShareQrUrl(shareUrl);
@@ -6807,8 +6908,8 @@ window.showSettings = () => {
     `;
   } else {
     html += '<p>You are playing in local mode.</p>';
-    if (syncContext.serviceAvailable) {
-      html += '<button class="action-button" onclick="window.closeSettings(); window.showModeSelection();" style="margin-top: 10px;">Switch to Online Mode</button>';
+    if (syncContext.serviceAvailable || aiModeAvailable()) {
+      html += `<button class="action-button" onclick="window.closeSettings(); window.showModeSelection();" style="margin-top: 10px;">${aiModeAvailable() ? 'Choose game mode' : 'Switch to Online Mode'}</button>`;
     } else {
       html += '<p style="font-size: 12px; color: #666;">Online sync is not available.</p>';
     }
@@ -7142,7 +7243,7 @@ const init = async () => {
   updateSyncUI();
   
   // If service is available and no session param, show mode selection after a delay
-  if (serviceAvailable && !normalizedSessionParam) {
+  if ((serviceAvailable || aiModeAvailable()) && !normalizedSessionParam) {
     setTimeout(() => {
       if (typeof window.showModeSelection === 'function') {
         window.showModeSelection();
