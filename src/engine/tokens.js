@@ -49,12 +49,24 @@ export function legalTakeSelections(board) {
           const next = [row + dr * (length - 1), col + dc * (length - 1)];
           if (!isCoord(next) || !isTakeable(board[next[0]][next[1]])) break;
           line.push(next);
-          selections.push(line.map(coord => [...coord]).sort(compareCoords));
+          if (isStraightLine(line)) selections.push(line.map(coord => [...coord]).sort(compareCoords));
         }
       }
     }
   }
   return selections;
+}
+
+/** 1–3 board cells in any order, contiguous along one unit-step line. */
+export function isStraightLine(coords) {
+  if (!Array.isArray(coords) || coords.length < 1 || coords.length > 3 || !coords.every(isCoord)) return false;
+  if (coords.length === 1) return true;
+  const sorted = structuredClone(coords).sort(compareCoords);
+  const dr = sorted[1][0] - sorted[0][0];
+  const dc = sorted[1][1] - sorted[0][1];
+  if (Math.max(Math.abs(dr), Math.abs(dc)) !== 1) return false;
+  return sorted.slice(1).every(([row, col], index) =>
+    row - sorted[index][0] === dr && col - sorted[index][1] === dc);
 }
 
 /** Colors from one mandatory take, rather than the player's complete holding. */

@@ -124,6 +124,176 @@ try {
     requireThat(Boolean(beta.__splendorDebugState), 'debug hook missing with ?debug');
     return '?noai removes the button; debug hook only with ?debug';
   });
+  await check('token straight-line regression', async () => {
+    const local = openPage(html, 'token-lines', 'https://danieldailey.com/splendor_duel/index.html?debug');
+    await until(() => local.document.querySelector('#mode-selection-modal')?.style.display === 'flex', 'local mode dialog');
+    local.selectLocalMode();
+    const state = stateOf(local);
+    // Return the old board to the bag, then create a token-conserving fixture.
+    state.board.forEach(row => row.forEach(color => { if (color) state.bag[color]++; }));
+    state.board = Array.from({ length: 5 }, () => Array(5).fill(null));
+    for (const [row, col, color] of [[0, 0, 'blue'], [1, 2, 'red'], [2, 2, 'green'], [1, 1, 'white'], [2, 0, 'black']]) {
+      state.board[row][col] = color;
+      state.bag[color]--;
+    }
+    local.document.querySelector('[data-popover="token-selection-modal"]').click();
+    await until(() => local.document.querySelector('.token-overlay[data-row="0"][data-col="0"]')?._clickHandler, 'token listeners');
+    const clickCell = (row, col) => {
+      const overlay = local.document.querySelector(`.token-overlay[data-row="${row}"][data-col="${col}"]`);
+      requireThat(overlay?._clickHandler, `missing listener at (${row},${col})`);
+      overlay.click();
+    };
+    const hasError = () => {
+      const error = local.document.querySelector('#token-selection-error');
+      return Boolean(error && error.style.display !== 'none');
+    };
+    const confirm = () => local.document.querySelector('#token-selection-modal .btn-confirm').click();
+    const before = JSON.stringify(state);
+    clickCell(0, 0);
+    requireThat(!hasError(), 'singleton incorrectly flagged');
+    clickCell(1, 2);
+    requireThat(!hasError(), 'gapped partial selection must not be flagged mid-selection');
+    clickCell(2, 2);
+    requireThat(hasError(), 'endpoint-only bent triple not flagged');
+    confirm();
+    requireThat(JSON.stringify(state) === before, 'bent Confirm changed game state');
+    requireThat(local.document.querySelector('#token-selection-error')?.textContent === 'Tokens must be adjacent and in a straight line', 'existing straight-line error message missing');
+    clickCell(1, 2); // Remove the bend, leaving two separated endpoints.
+    clickCell(2, 2);
+    clickCell(1, 1);
+    requireThat(!hasError(), 'adjacent diagonal pair incorrectly flagged');
+    clickCell(2, 0);
+    requireThat(hasError(), 'non-collinear third token not flagged');
+    confirm();
+    requireThat(JSON.stringify(state) === before, 'incremental bend Confirm changed game state');
+    clickCell(2, 0);
+    requireThat(!hasError(), 'deselecting bend did not clear error');
+    clickCell(2, 2);
+    requireThat(!hasError(), 'straight diagonal triple incorrectly flagged');
+    const playerId = state.currentPlayer === 1 ? 'player1' : 'player2';
+    const tokens = { ...state.players[playerId].tokens };
+    confirm();
+    for (const [row, col, color] of [[0, 0, 'blue'], [1, 1, 'white'], [2, 2, 'green']]) {
+      requireThat(state.board[row][col] === null, 'straight Confirm did not clear board cell');
+      requireThat(state.players[playerId].tokens[color] === tokens[color] + 1, 'straight Confirm did not transfer token');
+    }
+    requireThat(state.board[1][2] === 'red' && state.board[2][0] === 'black', 'bent cells were taken');
+    invariants(local);
+    return 'bent triples flagged during selection and rejected on Confirm; adjacent pair grows into accepted straight diagonal';
+  });
+  // Drive the live purchase/ability/Royal/discard callbacks through real DOM
+  // controls. Each fixture starts with ten tokens and a free one-crown card.
+  for (const scenario of [
+    { name: 'Royal steal after card token', crowns: 2, ability: 'token', royal: 'steal', excess: 2 },
+    { name: 'Royal steal from exactly ten', crowns: 2, ability: null, royal: 'steal', excess: 1 },
+    { name: 'six-crown Royal scroll', crowns: 5, ability: 'token', royal: 'scroll', excess: 1 },
+    { name: 'Royal extra turn', crowns: 2, ability: 'token', royal: 'again', excess: 1 },
+    { name: 'Royal victory before extra turn', crowns: 2, ability: 'token', royal: 'again', excess: 1, victory: true },
+    { name: 'no Royal control', crowns: 0, ability: 'token', royal: null, excess: 1 }
+  ]) await check(`completion order: ${scenario.name}`, async () => {
+    const local = openPage(html, scenario.name, 'https://danieldailey.com/splendor_duel/index.html?debug');
+    await until(() => local.document.querySelector('#mode-selection-modal')?.style.display === 'flex', 'local mode dialog');
+    local.selectLocalMode();
+    const { gameState: state, previousCrownCounts } = local.__splendorDebugState();
+    const playerId = state.currentPlayer === 1 ? 'player1' : 'player2';
+    const otherId = playerId === 'player1' ? 'player2' : 'player1';
+    const player = state.players[playerId];
+    // Redistribute the existing tokens so supply remains conserved.
+    state.board.forEach(row => row.forEach(color => { if (color) state.bag[color]++; }));
+    state.board = Array.from({ length: 5 }, () => Array(5).fill(null));
+    const grant = (owner, color, count) => {
+      state.bag[color] -= count;
+      owner.tokens[color] += count;
+    };
+    for (const color of ['blue', 'white', 'green', 'red', 'black']) grant(player, color, 2);
+    grant(state.players[otherId], 'pearl', 1);
+    state.board[0][0] = 'blue';
+    state.bag.blue--;
+    const crownCard = state.decks.level1.shift();
+    Object.assign(crownCard, { crowns: scenario.crowns, points: 0, color: 'red', ability: null });
+    player.cards.push(crownCard);
+    if (scenario.victory) {
+      crownCard.points = 9;
+      const pointsCard = state.decks.level1.shift();
+      Object.assign(pointsCard, { crowns: 0, points: 9, color: 'white', ability: null });
+      player.cards.push(pointsCard);
+    }
+    previousCrownCounts[playerId] = scenario.crowns;
+    const buyCard = state.decks.level3.shift();
+    Object.assign(buyCard, { crowns: 1, points: 0, color: 'blue', ability: scenario.ability,
+      costs: { white: 0, blue: 0, green: 0, red: 0, black: 0, pearl: 0 } });
+    player.reserves.push(buyCard);
+    const total = () => Object.values(player.tokens).reduce((sum, count) => sum + count, 0);
+    const visible = id => local.document.getElementById(id)?.style.display === 'flex';
+    let discardOffers = 0;
+    const countOffers = records => {
+      // Each showTokenDiscardModal call populates this grid once, including
+      // calls on nodes that renderGame subsequently replaces.
+      discardOffers += records.filter(record => record.target.id === 'token-discard-grid' && record.addedNodes.length).length;
+    };
+    const observer = new local.MutationObserver(countOffers);
+    observer.observe(local.document.querySelector('#app'), { childList: true, subtree: true });
+    const flushOffers = () => countOffers(observer.takeRecords());
+    try {
+      local.document.querySelector('#show-reserved').click();
+      local.document.querySelector('#reserved-modal .buy-button').click();
+      const buy = local.document.querySelector('#card-detail-popover .buy-button');
+      requireThat(buy && !buy.disabled, 'fixture card is not purchasable');
+      buy.click();
+      if (scenario.ability === 'token') {
+        requireThat(visible('confirmation-modal'), 'purchase token-limit warning missing');
+        local.document.querySelector('#confirmation-confirm-btn').click();
+        requireThat(visible('token-selection-modal'), 'card ability must precede Royal/discard');
+        requireThat(!visible('royal-modal') && !visible('token-discard-modal'), 'completion ran before card ability');
+        await until(() => local.document.querySelector('.token-overlay[data-row="0"][data-col="0"]')?._clickHandler, 'bonus token listener');
+        local.document.querySelector('.token-overlay[data-row="0"][data-col="0"]').click();
+        local.document.querySelector('#token-selection-modal .btn-confirm').click();
+        requireThat(visible('confirmation-modal'), 'bonus-token warning missing');
+        local.document.querySelector('#confirmation-confirm-btn').click();
+      }
+      requireThat(player.cards.some(card => card.id === buyCard.id), 'buy did not acquire card');
+      if (scenario.royal) {
+        requireThat(visible('royal-modal'), 'Royal selection must appear before discard');
+        flushOffers();
+        requireThat(discardOffers === 0 && !visible('token-discard-modal'), 'discard offered before Royal');
+        const royal = state.royalCards.find(card => card.ability === scenario.royal);
+        const privileges = player.privileges;
+        local.document.querySelector(`#royal-modal [data-card-id="${royal.id}"] .card`).click();
+        local.document.querySelector('#royal-modal-body button').click();
+        requireThat(royal.taken && player.cards.some(card => card.id === royal.id), 'Royal not claimed');
+        if (scenario.royal === 'steal') {
+          requireThat(visible('steal-token-modal') && !visible('token-discard-modal'), 'discard preceded Royal steal');
+          local.document.querySelector('.steal-token-option[data-color="pearl"]').click();
+          local.document.querySelector('#confirm-steal-token-btn').click();
+          requireThat(player.tokens.pearl === 1 && state.players[otherId].tokens.pearl === 0, 'Royal steal did not transfer pearl');
+        } else if (scenario.royal === 'scroll') {
+          requireThat(player.privileges === privileges + 1, 'Royal scroll ability not resolved');
+        } else {
+          requireThat(state.turnState.extraTurnsPending === 1, 'Royal extra turn not queued');
+          requireThat(!visible('repeat-turn-dialog'), 'extra turn offered before discard');
+        }
+      } else requireThat(!visible('royal-modal'), 'control unexpectedly offered a Royal');
+      requireThat(visible('token-discard-modal'), 'discard missing after abilities');
+      requireThat(!state.gameOver.winnerId && !visible('victory-modal'), 'victory checked before discard');
+      requireThat(total() === 10 + scenario.excess, `wrong token total before discard: ${total()}`);
+      requireThat(local.document.querySelector('#token-discard-message').textContent.includes(`Select ${scenario.excess} token`), 'wrong excess in discard prompt');
+      flushOffers();
+      requireThat(discardOffers === 1, `expected one discard offer, got ${discardOffers}`);
+      for (const token of [...local.document.querySelectorAll('.token-discard-item')].slice(0, scenario.excess)) token.click();
+      requireThat(!local.document.querySelector('#confirm-discard-btn').disabled, 'exact excess selection did not enable Confirm');
+      local.document.querySelector('#confirm-discard-btn').click();
+      flushOffers();
+      requireThat(total() === 10 && discardOffers === 1 && !visible('token-discard-modal'), 'discard repeated or final total is not ten');
+      const completion = scenario.victory ? 'victory-modal' : scenario.royal === 'again' ? 'repeat-turn-dialog' : 'turn-completion-dialog';
+      requireThat(visible(completion), 'completion missing after discard');
+      if (scenario.victory) requireThat(state.gameOver.winnerId === playerId && !visible('repeat-turn-dialog'), 'victory must precede queued extra turn');
+      requireThat(state.currentPlayer === (playerId === 'player1' ? 1 : 2), 'handoff occurred before completion confirmation');
+      invariants(local);
+      return `abilities → ${scenario.royal ? 'Royal/ability → ' : ''}one discard of ${scenario.excess} → ${scenario.victory ? 'victory' : scenario.royal === 'again' ? 'extra turn' : 'completion'}; final total 10`;
+    } finally {
+      observer.disconnect();
+    }
+  });
   await check('(c) startVsComputer(3)/human view', async () => {
     beta.startVsComputer(3);
     requireThat(beta.document.querySelector('.game-container'), 'game not rendered');

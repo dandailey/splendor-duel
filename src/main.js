@@ -1,3 +1,4 @@
+import { isStraightLine } from './engine/tokens.js';
 import "./style.css";
 import { aiModeAvailable, vsComputer, enableComputer, disableComputer, applyGameInto,
   rememberedLevel, rememberLevel, levelPickerHtml, summaryBannerHtml, scheduleComputerTurn } from './ai/vs-computer.js';
@@ -4579,6 +4580,12 @@ const toggleTokenSelection = (row, col) => {
   
   // Re-render the token board to show selection state
   renderTokenBoard();
+  // Partial selections stay editable (players may pick the ends of a line before the middle);
+  // a full set of three that is not a straight line is flagged immediately, anything else at Confirm.
+  if (selectedTokens.length === 3) {
+    const validation = validateTokenSelection();
+    if (!validation.valid) showSelectionError(validation.message);
+  }
 };
 
 // Validate token selection
@@ -4605,71 +4612,11 @@ const validateTokenSelection = () => {
     return { valid: false, message: 'You must select between 1 and 3 tokens' };
   }
   
-  if (selectedTokens.length === 1) {
-    return { valid: true };
-  }
-  
-  // Check if tokens form a valid line
   const positions = selectedTokens.map(t => [t.row, t.col]);
-  
-  // Check for horizontal line
-  const rows = new Set(positions.map(p => p[0]));
-  if (rows.size === 1 && selectedTokens.length === 2) {
-    // Two tokens in same row - check if adjacent
-    const sortedCols = positions.map(p => p[1]).sort((a, b) => a - b);
-    if (sortedCols[1] - sortedCols[0] === 1) {
-      return checkLineForGoldOrEmpty(positions);
-    }
+  if (!isStraightLine(positions)) {
+    return { valid: false, message: 'Tokens must be adjacent and in a straight line' };
   }
-  
-  // Check for vertical line
-  const cols = new Set(positions.map(p => p[1]));
-  if (cols.size === 1 && selectedTokens.length === 2) {
-    // Two tokens in same col - check if adjacent
-    const sortedRows = positions.map(p => p[0]).sort((a, b) => a - b);
-    if (sortedRows[1] - sortedRows[0] === 1) {
-      return checkLineForGoldOrEmpty(positions);
-    }
-  }
-  
-  // Check for diagonal line (for 2 tokens)
-  if (selectedTokens.length === 2) {
-    const rowDiff = Math.abs(positions[0][0] - positions[1][0]);
-    const colDiff = Math.abs(positions[0][1] - positions[1][1]);
-    if (rowDiff === 1 && colDiff === 1) {
-      return checkLineForGoldOrEmpty(positions);
-    }
-  }
-  
-  // For 3 tokens, must all be adjacent and in line
-  if (selectedTokens.length === 3) {
-    // Sort positions to find direction
-    positions.sort((a, b) => {
-      if (a[0] !== b[0]) return a[0] - b[0];
-      return a[1] - b[1];
-    });
-    
-    // Check horizontal line of 3
-    const allSameRow = positions.every(p => p[0] === positions[0][0]);
-    if (allSameRow && positions[2][1] - positions[0][1] === 2) {
-      return checkLineForGoldOrEmpty(positions);
-    }
-    
-    // Check vertical line of 3
-    const allSameCol = positions.every(p => p[1] === positions[0][1]);
-    if (allSameCol && positions[2][0] - positions[0][0] === 2) {
-      return checkLineForGoldOrEmpty(positions);
-    }
-    
-    // Check diagonal line of 3
-    const rowDiff = positions[2][0] - positions[0][0];
-    const colDiff = positions[2][1] - positions[0][1];
-    if (Math.abs(rowDiff) === 2 && Math.abs(colDiff) === 2 && Math.abs(rowDiff) === Math.abs(colDiff)) {
-      return checkLineForGoldOrEmpty(positions);
-    }
-  }
-  
-  return { valid: false, message: 'Tokens must be adjacent and in a straight line' };
+  return checkLineForGoldOrEmpty(positions);
 };
 
 // Check if line contains gold or empty spaces
@@ -5428,14 +5375,6 @@ const checkAndShowRoyalCardSelection = () => {
     (previousCrowns < 3 && currentCrowns >= 3 && currentCrowns <= 5) ||
     (previousCrowns >= 3 && previousCrowns <= 5 && currentCrowns >= 6);
   
-  // Check token limit before showing royal card selection or turn completion
-  const totalTokens = getTotalTokenCount(currentPlayerId);
-  if (totalTokens > 10) {
-    // Player must discard tokens first
-    showTokenDiscardModal();
-    return;
-  }
-  
   if (earnedRoyalCard) {
     // Update previous count
     previousCrownCounts[currentPlayerId] = currentCrowns;
@@ -5443,6 +5382,13 @@ const checkAndShowRoyalCardSelection = () => {
     // Show royal card selection modal
     showRoyalCardSelection();
   } else {
+    // Resolve the Royal and its ability before offering a single end-of-turn
+    // discard. Ability callbacks return here after all token gains are finished.
+    if (getTotalTokenCount(currentPlayerId) > 10) {
+      showTokenDiscardModal();
+      return;
+    }
+
     // Update previous count and continue with end-of-turn checks.
     previousCrownCounts[currentPlayerId] = currentCrowns;
     const { conditions } = getVictoryConditions(currentPlayerId);
