@@ -36,7 +36,9 @@ test('all levels return legal deterministic moves and preserve inputs', () => {
     assert.deepEqual(move, chooseMove(state, { level, rng: mulberry32(4) }));
   }
   assert.deepEqual(state, before);
-  assert.throws(() => chooseMove(state, { level: 6, rng: mulberry32(1) }), RangeError);
+  for (const level of [0, 11, 1.5]) {
+    assert.throws(() => chooseMove(state, { level, rng: mulberry32(1) }), RangeError);
+  }
 });
 
 test('terminal scoring, immediate winning buy, forced and terminal decisions', () => {

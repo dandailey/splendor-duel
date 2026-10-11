@@ -1,5 +1,5 @@
 import { LEVELS } from './index.js';
-import { runAiTurn } from './bridge.js';
+import { runAiTurnAsync } from './bridge.js';
 
 // Computer mode is part of the live game. `?noai` is a kill switch (e.g. to compare against plain hotseat).
 export function aiModeAvailable(location = globalThis.location) {
@@ -7,7 +7,7 @@ export function aiModeAvailable(location = globalThis.location) {
 }
 
 export const LEVEL_LABELS = Object.freeze(Object.fromEntries(
-  Object.keys(LEVELS).map((level, i) => [level, `${level} ${['Beginner', 'Easy', 'Medium', 'Hard', 'Expert'][i]}`])
+  Object.keys(LEVELS).map((level, i) => [level, `${level} ${['Beginner', 'Easy', 'Medium', 'Hard', 'Expert', 'Strong', 'Very strong', 'Expert search', 'Master', 'Grandmaster'][i]}`])
 ));
 const validLevel = level => Object.hasOwn(LEVELS, level);
 export function rememberedLevel() {
@@ -49,6 +49,8 @@ export function levelPickerHtml(selected = 1) {
 export const createVsComputerState = () => ({ enabled: false, level: 1, aiPlayerId: 'player2', busy: false, summary: [], error: null, generation: 0 });
 export const vsComputer = createVsComputerState();
 export function disableComputer(state = vsComputer) {
+  state.controller?.abort();
+  state.controller = null;
   state.generation++;
   state.enabled = false;
   state.busy = false;
@@ -56,14 +58,14 @@ export function disableComputer(state = vsComputer) {
   state.error = null;
 }
 export function enableComputer(level, state = vsComputer) {
-  if (!validLevel(level)) throw new RangeError('level must be 1 through 5');
+  if (!validLevel(level)) throw new RangeError('level must be 1 through 10');
   disableComputer(state);
   state.enabled = true;
   state.level = Number(level);
 }
 
 /** UI callbacks and the timer are injectable so the whole handoff can be smoked without DOM. */
-export function scheduleComputerTurn({ getGame, applyGame, refresh, rng, schedule = setTimeout, runTurn = runAiTurn }, state = vsComputer) {
+export function scheduleComputerTurn({ getGame, applyGame, refresh, rng, schedule = setTimeout, runTurn }, state = vsComputer) {
   const game = getGame();
   if (!state.enabled || state.busy || game.gameState.gameOver.winnerId || game.gameState.currentPlayer !== 2) return false;
   state.busy = true;
@@ -71,20 +73,33 @@ export function scheduleComputerTurn({ getGame, applyGame, refresh, rng, schedul
   state.summary = [];
   const generation = state.generation;
   refresh();
+  const controller = new AbortController();
+  state.controller = controller;
   schedule(() => {
     if (!state.enabled || state.generation !== generation) return;
-    try {
-      const result = runTurn(getGame(), { level: state.level, aiPlayerId: state.aiPlayerId, rng });
+    const active = () => state.enabled && state.generation === generation && !controller.signal.aborted;
+    const finish = result => {
+      if (!active()) return;
       applyGame(result.game, result);
       state.summary = result.summary;
-    } catch (error) {
-      // Keep the original AI boundary intact so a retry cannot repeat a partial turn.
+    };
+    const fail = error => {
+      if (!active() || error.name === 'AbortError') return;
       state.error = 'The computer could not finish its turn. Please retry.';
       console.error('Computer turn failed:', error);
-    } finally {
+    };
+    const release = () => {
+      if (!active()) return;
+      state.controller = null;
       state.busy = false;
       refresh();
-    }
+    };
+    try {
+      const turn = runTurn ?? runAiTurnAsync;
+      const result = turn(getGame(), { level: state.level, aiPlayerId: state.aiPlayerId, rng, signal: controller.signal });
+      if (result && typeof result.then === 'function') result.then(finish).catch(fail).finally(release);
+      else { finish(result); release(); }
+    } catch (error) { fail(error); release(); }
   }, 60);
   return true;
 }

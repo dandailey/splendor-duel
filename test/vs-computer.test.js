@@ -36,8 +36,15 @@ test('live copy preserves nested identities, deletes removed keys and never alia
 
 test('level labels cover the AI levels and builders escape summaries', () => {
   assert.deepEqual(Object.keys(LEVEL_LABELS), Object.keys(LEVELS));
-  assert.deepEqual(Object.values(LEVEL_LABELS), ['1 Beginner', '2 Easy', '3 Medium', '4 Hard', '5 Expert']);
-  assert.match(levelPickerHtml(5), /value="5" selected/);
+  assert.deepEqual(Object.keys(LEVEL_LABELS), Array.from({ length: 10 }, (_, i) => String(i + 1)));
+  assert.deepEqual(Object.values(LEVEL_LABELS), ['1 Beginner', '2 Easy', '3 Medium', '4 Hard', '5 Expert',
+    '6 Strong', '7 Very strong', '8 Expert search', '9 Master', '10 Grandmaster']);
+  for (let selected = 1; selected <= 10; selected++) {
+    const options = [...levelPickerHtml(selected).matchAll(/<option value="(\d+)"( selected)?>([^<]+)<\/option>/g)];
+    assert.deepEqual(options.map(option => option[1]), Object.keys(LEVEL_LABELS));
+    assert.deepEqual(options.map(option => option[3]), Object.values(LEVEL_LABELS));
+    assert.deepEqual(options.filter(option => option[2]).map(option => Number(option[1])), [selected]);
+  }
   assert.equal(summaryBannerHtml([]), '');
   assert.match(summaryBannerHtml(['<script>&"\'']), /&lt;script&gt;&amp;&quot;&#39;/);
   assert.match(summaryBannerHtml(['Took blue']), /Dismiss computer summary/);
@@ -61,7 +68,11 @@ test('level preference tolerates unavailable storage and remembers valid choices
   }
 });
 
-test('DOM-free smoke: real bridge turn applies in place, paints before running and blocks duplicate starts', () => {
+test('DOM-free smoke: real bridge turn applies in place, paints before running and blocks duplicate starts', async t => {
+  // Advance a logical clock by more than the default 12 ms slice on every
+  // read, forcing one search iteration per slice without wall-clock flakiness.
+  let clock = 0;
+  t.mock.method(globalThis.performance, 'now', () => { clock += 13; return clock; });
   for (const winning of [false, true]) {
     const rng = mulberry32(88);
     const initial = newGame(loadCards(), rng, { firstPlayer: 2 });
@@ -70,19 +81,46 @@ test('DOM-free smoke: real bridge turn applies in place, paints before running a
     const gameIdentity = live.gameState, playersIdentity = live.gameState.players;
     const crownsIdentity = live.previousCrownCounts;
     const state = createVsComputerState();
-    enableComputer(1, state);
-    let queued, paints = 0;
+    enableComputer(7, state);
+    const before = structuredClone(live);
+    const slices = [];
+    let queued, paints = 0, yields = 0, applies = 0;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay) => {
+      assert.equal(delay, 0);
+      yields++;
+      slices.push(callback);
+    });
     const options = {
       getGame: () => live, rng,
       schedule: (callback, delay) => { queued = callback; assert.equal(delay, 60); },
       refresh: () => { paints++; },
-      applyGame: game => { applyGameInto(live.gameState, game.gameState); applyGameInto(live.previousCrownCounts, game.previousCrownCounts); }
+      applyGame: game => {
+        applies++;
+        applyGameInto(live.gameState, game.gameState);
+        applyGameInto(live.previousCrownCounts, game.previousCrownCounts);
+      }
     };
     assert.equal(scheduleComputerTurn(options, state), true);
     assert.equal(paints, 1);
     assert.equal(state.busy, true);
     assert.equal(scheduleComputerTurn(options, state), false);
     queued();
+    assert.equal(paints, 1);
+    assert.equal(state.busy, true);
+    assert.equal(applies, 0);
+    assert.equal(slices.length, 1, 'real search yields after its first slice');
+    assert.deepEqual(live, before);
+    assert.equal(scheduleComputerTurn(options, state), false);
+    for (let slice = 0; state.busy && slice < 10000; slice++) {
+      assert.equal(slices.length, 1, 'each slice yields before continuing the search');
+      assert.equal(applies, 0, 'partial turns stay private');
+      assert.deepEqual(live, before);
+      slices.shift()();
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.ok(yields >= 299, 'level 7 uses its 300-iteration budget across slices');
+    assert.equal(slices.length, 0);
+    assert.equal(applies, 1);
     assert.equal(paints, 2);
     assert.equal(state.busy, false);
     assert.equal(state.error, null);

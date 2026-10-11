@@ -1,3 +1,5 @@
+import { LEVELS } from './index.js';
+
 // Pure snapshot codec. Storage and time are supplied by the page.
 export const VS_COMPUTER_SAVE_KEY = 'splendor_duel_vs_computer_save_v1';
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -15,7 +17,7 @@ const turn = value => object(value) && typeof value.id === 'string' && playerId(
 
 export function validateSnapshot(snapshot) {
   if (!object(snapshot) || snapshot.v !== 1 || !count(snapshot.savedAt)
-      || ![1, 2, 3, 4, 5].includes(snapshot.level) || snapshot.aiPlayerId !== 'player2'
+      || !(Number.isInteger(snapshot.level) && Object.hasOwn(LEVELS, snapshot.level)) || snapshot.aiPlayerId !== 'player2'
       || !(snapshot.lastSeenTurnId === null || typeof snapshot.lastSeenTurnId === 'string')) return false;
   const payload = snapshot.state;
   if (!object(payload)) return false;

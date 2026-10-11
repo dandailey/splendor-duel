@@ -26,7 +26,8 @@ test('snapshot round trip preserves the sync payload and recap acknowledgement w
 test('snapshot parser rejects corrupt JSON, missing fields, old versions and invalid nested shapes', () => {
   for (const raw of ['', '{', 'null', '[]', '{}', 'true']) assert.equal(parseSnapshot(raw), null);
   const changes = [
-    s => { s.v = 0; }, s => { s.v = 2; }, s => { s.level = 6; }, s => { s.level = '3'; },
+    s => { s.v = 0; }, s => { s.v = 2; }, s => { s.level = 0; }, s => { s.level = 11; },
+    s => { s.level = 1.5; }, s => { s.level = '3'; },
     s => { s.savedAt = -1; }, s => { s.aiPlayerId = 'player1'; }, s => { delete s.lastSeenTurnId; },
     s => { s.state = []; }, s => { s.state.gameState.board = [[]]; },
     s => { s.state.gameState.board[0][0] = 'purple'; }, s => { s.state.gameState.players.player1.tokens.blue = -1; },
@@ -58,4 +59,19 @@ test('finished games never resume; both human checkpoints and Computer boundarie
   snapshot.state.gameState.turnState.playerId = 'player2';
   snapshot.state.gameState.turnState.actionCompleted = false;
   assert.ok(parseSnapshot(JSON.stringify(snapshot)));
+});
+
+test('all ten levels save and resume at human and Computer turn boundaries', () => {
+  for (let level = 1; level <= 10; level++) {
+    for (const currentPlayer of [1, 2]) {
+      const snapshot = fixture();
+      snapshot.level = level;
+      snapshot.state.gameState.currentPlayer = currentPlayer;
+      snapshot.state.gameState.turnState.playerId = `player${currentPlayer}`;
+      const before = structuredClone(snapshot);
+      assert.equal(validateSnapshot(snapshot), true);
+      assert.deepEqual(parseSnapshot(serializeSnapshot(snapshot.state, snapshot)), snapshot);
+      assert.deepEqual(snapshot, before);
+    }
+  }
 });

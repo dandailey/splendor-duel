@@ -2,11 +2,14 @@ import { legalMoves, applyMove, mover, isTerminal, winner } from '../engine/turn
 import { determinize } from './hidden.js';
 import { checkVictory } from '../engine/rules-misc.js';
 import { evaluate } from './eval.js';
+import { createSearch, chooseMoveSearch, SEARCH_LEVELS } from './mcts.js';
+export { SEARCH_LEVELS } from './mcts.js';
 
 export const LEVELS = Object.freeze({
   1: Object.freeze({ noise: 0 }), 2: Object.freeze({ noise: 2.4 }),
   3: Object.freeze({ noise: 0.9 }), 4: Object.freeze({ noise: 0.25 }),
-  5: Object.freeze({ noise: 0, candidates: 6, replies: 4 })
+  5: Object.freeze({ noise: 0, candidates: 6, replies: 4 }),
+  ...SEARCH_LEVELS
 });
 function sample(rng) {
   const n = rng();
@@ -33,11 +36,12 @@ function replies(state, limit) {
 }
 
 /** Required caller RNG is the sole source of randomness, including tie breaks.
- * Terminal positions return null. Defaults to the strongest level.
+ * Terminal positions return null. Retains the level 5 default.
  */
 export function chooseMove(state, { level = 5, rng } = {}) {
-  if (!LEVELS[level]) throw new RangeError('level must be 1 through 5');
+  if (!LEVELS[level]) throw new RangeError('level must be 1 through 10');
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
+  if (SEARCH_LEVELS[level]) return chooseMoveSearch(state, { level, rng });
   const moves = legalMoves(state);
   if (!moves.length) return null;
   if (moves.length === 1) return moves[0];
@@ -77,4 +81,24 @@ export function chooseMove(state, { level = 5, rng } = {}) {
   }
   candidates.sort((a, b) => b.score - a.score || b.tie - a.tie);
   return candidates[0].move;
+}
+
+const abortError = () => Object.assign(new Error('Search aborted'), { name: 'AbortError' });
+/** Iteration budgets, not elapsed time, determine the result. */
+export async function chooseMoveAsync(state, { level = 5, rng, sliceMs = 12, signal } = {}) {
+  if (signal?.aborted) throw abortError();
+  if (!LEVELS[level]) throw new RangeError('level must be 1 through 10');
+  if (!Number.isFinite(sliceMs) || sliceMs <= 0) throw new RangeError('sliceMs must be positive');
+  if (!SEARCH_LEVELS[level]) return chooseMove(state, { level, rng });
+  const search = createSearch(state, { rng });
+  if (isTerminal(state) || !legalMoves(state).length) return null;
+  const budget = SEARCH_LEVELS[level].iterations;
+  while (search.iterations < budget) {
+    if (signal?.aborted) throw abortError();
+    const start = performance.now();
+    do { search.step(1); } while (search.iterations < budget && performance.now() - start < sliceMs);
+    if (search.iterations < budget) await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  if (signal?.aborted) throw abortError();
+  return search.best();
 }

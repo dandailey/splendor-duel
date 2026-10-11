@@ -1,4 +1,4 @@
-import { chooseMove } from './index.js';
+import { chooseMove, chooseMoveAsync } from './index.js';
 import { applyMoveWithEvents, mover, isTerminal, winner } from '../engine/turn.js';
 import { crownsOf } from '../engine/rules-misc.js';
 import { spiralOrder } from '../engine/tokens.js';
@@ -118,6 +118,28 @@ export function runAiTurn(game, { level, rng, aiPlayerId = 'player2', maxDecisio
   while (mover(state) === aiPlayerId) {
     if (moves.length >= maxDecisions) throw new Error(`AI turn exceeded maxDecisions (${maxDecisions})`);
     const move = chooseMove(state, { level, rng });
+    if (!move) throw new Error('AI has no legal move in an unfinished turn');
+    const result = applyMoveWithEvents(state, move, chanceRng);
+    summary.push(...actionSummary(state, move, result.events));
+    moves.push(structuredClone(move));
+    events.push(...result.events);
+    state = result.state;
+  }
+  return { game: gameFromEngineState(state), moves, summary, events, chanceSamples, finished: isTerminal(state), winnerId: winner(state) };
+}
+
+/** Async boundary retains the complete turn privately until it finishes. */
+export async function runAiTurnAsync(game, { level, rng, aiPlayerId = 'player2', maxDecisions = 200, signal, sliceMs } = {}) {
+  if (!IDS.includes(aiPlayerId)) throw new Error('aiPlayerId must be player1 or player2');
+  if (typeof rng !== 'function') throw new TypeError('rng must be a function');
+  if (!Number.isSafeInteger(maxDecisions) || maxDecisions < 1) throw new RangeError('maxDecisions must be a positive integer');
+  let state = engineStateFromGame(game);
+  const moves = [], summary = [], events = [], chanceSamples = [];
+  const chanceRng = () => { const sample = rng(); chanceSamples.push(sample); return sample; };
+  while (mover(state) === aiPlayerId) {
+    if (moves.length >= maxDecisions) throw new Error(`AI turn exceeded maxDecisions (${maxDecisions})`);
+    const move = await chooseMoveAsync(state, { level, rng, signal, sliceMs });
+    if (signal?.aborted) throw Object.assign(new Error('Turn aborted'), { name: 'AbortError' });
     if (!move) throw new Error('AI has no legal move in an unfinished turn');
     const result = applyMoveWithEvents(state, move, chanceRng);
     summary.push(...actionSummary(state, move, result.events));
