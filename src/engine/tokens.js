@@ -1,8 +1,28 @@
+import { cloneState, cloneJSON } from './clone.js';
 import { SPIRAL_ORDER, TOKEN_SUPPLY } from './setup.js';
 import { awardPrivilege, spendPrivilege } from '../game-rules.js';
 
 const COLORS = Object.keys(TOKEN_SUPPLY);
 const DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
+// Geometry never changes. Masks use only the low 25 bits and retain the
+// original row/direction/length enumeration order. Coordinates returned below
+// remain fresh, so a caller editing a move cannot corrupt these templates.
+const TAKE_LINES = [];
+for (let row = 0; row < 5; row++) for (let col = 0; col < 5; col++) {
+  TAKE_LINES.push({ mask: 1 << (row * 5 + col), cells: [[row, col]] });
+  for (const [dr, dc] of DIRECTIONS) {
+    const cells = [[row, col]];
+    let mask = 1 << (row * 5 + col);
+    for (let length = 2; length <= 3; length++) {
+      const r = row + dr * (length - 1), c = col + dc * (length - 1);
+      if (r >= 5 || c < 0 || c >= 5) break;
+      cells.push([r, c]);
+      mask |= 1 << (r * 5 + c);
+      TAKE_LINES.push({ mask, cells: cells.map(cell => [...cell]) });
+    }
+  }
+}
+
 const compareCoords = ([ar, ac], [br, bc]) => ar - br || ac - bc;
 const isCoord = coord => Array.isArray(coord) && coord.length === 2 &&
   coord.every(value => Number.isInteger(value) && value >= 0 && value < 5);
@@ -32,27 +52,20 @@ function bagTokens(state) {
 
 /** Fresh coordinates, in the live center-first clockwise refill order. */
 export function spiralOrder() {
-  return structuredClone(SPIRAL_ORDER);
+  return cloneJSON(SPIRAL_ORDER);
 }
 
 /** Each selection is sorted by row then column; reversals occur only once. */
 export function legalTakeSelections(board) {
   validateBoard(board);
+  let available = 0;
+  for (let row = 0; row < 5; row++) for (let col = 0; col < 5; col++) {
+    const color = board[row][col];
+    if (color !== null && color !== 'gold') available |= 1 << (row * 5 + col);
+  }
   const selections = [];
-  for (let row = 0; row < 5; row += 1) {
-    for (let col = 0; col < 5; col += 1) {
-      if (!isTakeable(board[row][col])) continue;
-      selections.push([[row, col]]);
-      for (const [dr, dc] of DIRECTIONS) {
-        const line = [[row, col]];
-        for (let length = 2; length <= 3; length += 1) {
-          const next = [row + dr * (length - 1), col + dc * (length - 1)];
-          if (!isCoord(next) || !isTakeable(board[next[0]][next[1]])) break;
-          line.push(next);
-          if (isStraightLine(line)) selections.push(line.map(coord => [...coord]).sort(compareCoords));
-        }
-      }
-    }
+  for (const line of TAKE_LINES) {
+    if ((available & line.mask) === line.mask) selections.push(line.cells.map(cell => [cell[0], cell[1]]));
   }
   return selections;
 }
@@ -61,7 +74,7 @@ export function legalTakeSelections(board) {
 export function isStraightLine(coords) {
   if (!Array.isArray(coords) || coords.length < 1 || coords.length > 3 || !coords.every(isCoord)) return false;
   if (coords.length === 1) return true;
-  const sorted = structuredClone(coords).sort(compareCoords);
+  const sorted = coords.slice().sort(compareCoords);
   const dr = sorted[1][0] - sorted[0][0];
   const dc = sorted[1][1] - sorted[0][1];
   if (Math.max(Math.abs(dr), Math.abs(dc)) !== 1) return false;
@@ -83,11 +96,11 @@ export function applyTake(state, playerId, coords) {
     throw new Error('Illegal take: choose 1–3 valid board coordinates');
   }
   const canonical = coords.map(coord => [...coord]).sort(compareCoords);
-  const key = JSON.stringify(canonical);
-  if (!legalTakeSelections(state.board).some(selection => JSON.stringify(selection) === key)) {
+  validateBoard(state.board);
+  if (!isStraightLine(canonical) || canonical.some(([row, col]) => !isTakeable(state.board[row][col]))) {
     throw new Error('Illegal take: tokens must be non-gold and contiguous in one straight line');
   }
-  const next = structuredClone(state);
+  const next = cloneState(state);
   const colors = canonical.map(([row, col]) => next.board[row][col]);
   for (const [row, col] of canonical) {
     next.players[playerId].tokens[next.board[row][col]] += 1;
@@ -101,14 +114,18 @@ export function legalPrivilegeUses(state, playerId) {
   validatePlayer(state, playerId);
   validateBoard(state.board);
   if (state.players[playerId].privileges < 1 || state.turnState.boardRefilled) return [];
-  return legalTakeSelections(state.board).filter(selection => selection.length === 1).map(([coord]) => coord);
+  const cells = [];
+  for (let row = 0; row < 5; row++) for (let col = 0; col < 5; col++) {
+    if (isTakeable(state.board[row][col])) cells.push([row, col]);
+  }
+  return cells;
 }
 
 export function applyPrivilegeUse(state, playerId, coord) {
   if (!isCoord(coord) || !legalPrivilegeUses(state, playerId).some(([row, col]) => row === coord[0] && col === coord[1])) {
     throw new Error('Illegal Privilege use: requires a Privilege, a non-gold token, and no refill this turn');
   }
-  const next = structuredClone(state);
+  const next = cloneState(state);
   spendPrivilege(next, playerId);
   const [row, col] = coord;
   next.players[playerId].tokens[next.board[row][col]] += 1;
@@ -118,7 +135,13 @@ export function applyPrivilegeUse(state, playerId, coord) {
 
 export function canRefill(state, playerId) {
   validatePlayer(state, playerId);
-  return !state.turnState.boardRefilled && bagTokens(state).length > 0;
+  if (state.turnState.boardRefilled) return false;
+  if (!state.bag || Object.keys(state.bag).some(color => !COLORS.includes(color)) ||
+      COLORS.some(color => !Number.isInteger(state.bag[color]) || state.bag[color] < 0)) {
+    throw new Error('Bag must contain non-negative integer counts for all token colors');
+  }
+  for (const color of COLORS) if (state.bag[color] > 0) return true;
+  return false;
 }
 
 export function applyRefill(state, playerId, order) {
@@ -131,7 +154,7 @@ export function applyRefill(state, playerId, order) {
   }
   const empty = spiralOrder().filter(([row, col]) => state.board[row][col] === null);
   if (empty.length < order.length) throw new Error('Cannot refill: not enough empty board cells for the bag');
-  const next = structuredClone(state);
+  const next = cloneState(state);
   order.forEach((color, index) => {
     const [row, col] = empty[index];
     next.board[row][col] = color;
@@ -169,7 +192,7 @@ export function takeGoldFrom(state, playerId, coord) {
   if (!isCoord(coord) || state.board[coord[0]][coord[1]] !== 'gold') {
     throw new Error('Illegal gold choice: choose a gold token on the board');
   }
-  const next = structuredClone(state);
+  const next = cloneState(state);
   next.board[coord[0]][coord[1]] = null;
   next.players[playerId].tokens.gold += 1;
   return next;

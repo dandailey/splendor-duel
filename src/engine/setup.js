@@ -45,7 +45,9 @@ export function newGame(cards, rng, { firstPlayer } = {}) {
     throw new RangeError('firstPlayer must be 1 or 2');
   }
   const decks = { level1: [], level2: [], level3: [] };
-  for (const card of structuredClone(cards)) {
+  for (const original of cards) {
+    // Setup owns fresh editable fixtures; subsequent states share these records.
+    const card = { ...original, costs: { ...original.costs } };
     const deck = decks[`level${card.level}`];
     if (!deck) throw new RangeError(`Invalid card level: ${card.level}`);
     deck.push(card);
@@ -66,7 +68,7 @@ export function newGame(cards, rng, { firstPlayer } = {}) {
   players[currentPlayer === 1 ? 'player2' : 'player1'].privileges = 1;
   return {
     decks, initialDeckSizes, pyramid, bag: emptyTokens(), board,
-    royalCards: structuredClone(ROYAL_CARDS), scrollPool: PRIVILEGE_SUPPLY - 1,
+    royalCards: ROYAL_CARDS.map(card => ({ ...card })), scrollPool: PRIVILEGE_SUPPLY - 1,
     players, currentPlayer,
     turnState: {
       playerId: `player${currentPlayer}`, boardRefilled: false, actionCompleted: false,

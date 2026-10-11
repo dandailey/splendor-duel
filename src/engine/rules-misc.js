@@ -1,3 +1,4 @@
+import { cloneState, cloneJSON } from './clone.js';
 import { TOKEN_SUPPLY } from './setup.js';
 import { goldCells } from './tokens.js';
 import { awardPrivilege, queueExtraTurn } from '../game-rules.js';
@@ -57,7 +58,7 @@ export function applyReserve(state, playerId, option, chance) {
     if (!Number.isFinite(sample) || sample < 0 || sample >= 1) throw new RangeError('Invalid rng sample');
     goldCell = cells[Math.floor(sample * cells.length)];
   }
-  const next = structuredClone(state);
+  const next = cloneState(state);
   const { source, level, index } = option;
   const [row, col] = goldCell;
   const key = `level${level}`;
@@ -92,7 +93,7 @@ export function pendingAbilityChoices(state, playerId, ability, cardColor) {
  */
 export function applyAbility(state, playerId, ability, choice) {
   playerOf(state, playerId);
-  const next = structuredClone(state);
+  const next = cloneState(state);
   const events = [];
   const emit = (type, details = {}) => events.push({ type, playerId, ...details });
   if (ability === 'again') {
@@ -150,14 +151,14 @@ export function royalThresholds(before, after) {
 /** Availability only; the dispatcher must establish a threshold entitlement. */
 export function legalRoyalChoices(state, playerId) {
   playerOf(state, playerId);
-  return structuredClone(state.royalCards.filter(card => !card.taken));
+  return cloneJSON(state.royalCards.filter(card => !card.taken));
 }
 
 /** Emits the ability for the caller to resolve before discard/victory checks. */
 export function applyRoyal(state, playerId, royalId) {
   playerOf(state, playerId);
   if (!state.royalCards.some(card => card.id === royalId && !card.taken)) throw new Error('Illegal Royal choice');
-  const next = structuredClone(state);
+  const next = cloneState(state);
   const royal = next.royalCards.find(card => card.id === royalId);
   const acquired = { ...royal, level: 3, color: 'none', crowns: 0, costs: {} };
   next.players[playerId].cards.push(acquired);
@@ -209,16 +210,16 @@ export function applyDiscard(state, playerId, discardMap) {
     Object.values(discardMap).reduce((sum, count) => sum + count, 0) !== excess) {
     throw new Error('Illegal discard: return exactly the excess tokens');
   }
-  const next = structuredClone(state);
+  const next = cloneState(state);
   for (const [color, count] of Object.entries(discardMap)) {
     next.players[playerId].tokens[color] -= count;
     next.bag[color] += count;
   }
-  return { state: next, events: [{ type: 'tokens_discarded', playerId, tokens: structuredClone(discardMap) }] };
+  return { state: next, events: [{ type: 'tokens_discarded', playerId, tokens: cloneJSON(discardMap) }] };
 }
 
 export function victoryStats(state, playerId) {
-  const colorPoints = Object.fromEntries(GEMS.map(color => [color, 0]));
+  const colorPoints = { blue: 0, white: 0, green: 0, red: 0, black: 0 };
   let totalPoints = 0;
   let totalCrowns = 0;
   for (const card of playerOf(state, playerId).cards) {
