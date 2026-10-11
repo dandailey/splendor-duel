@@ -2,7 +2,7 @@ import { legalMoves, applyMove, mover, isTerminal, winner } from '../engine/turn
 import { determinize } from './hidden.js';
 import { checkVictory } from '../engine/rules-misc.js';
 import { evaluate, WEIGHTS } from './eval.js';
-import { createSearch, chooseMoveSearch, SEARCH_LEVELS } from './mcts.js';
+import { createSearch, chooseMoveSearch, SEARCH_LEVELS, searchIterations } from './mcts.js';
 export { SEARCH_LEVELS } from './mcts.js';
 
 export const LEVELS = Object.freeze({
@@ -38,10 +38,10 @@ function replies(state, limit) {
 /** Required caller RNG is the sole source of randomness, including tie breaks.
  * Terminal positions return null. Retains the level 5 default.
  */
-export function chooseMove(state, { level = 5, rng, weights = WEIGHTS } = {}) {
+export function chooseMove(state, { level = 5, rng, weights = WEIGHTS, search = {} } = {}) {
   if (!LEVELS[level]) throw new RangeError('level must be 1 through 10');
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
-  if (SEARCH_LEVELS[level]) return chooseMoveSearch(state, { level, rng, weights });
+  if (SEARCH_LEVELS[level]) return chooseMoveSearch(state, { level, rng, weights, search });
   const moves = legalMoves(state);
   if (!moves.length) return null;
   if (moves.length === 1) return moves[0];
@@ -85,14 +85,14 @@ export function chooseMove(state, { level = 5, rng, weights = WEIGHTS } = {}) {
 
 const abortError = () => Object.assign(new Error('Search aborted'), { name: 'AbortError' });
 /** Iteration budgets, not elapsed time, determine the result. */
-export async function chooseMoveAsync(state, { level = 5, rng, weights = WEIGHTS, sliceMs = 12, signal } = {}) {
+export async function chooseMoveAsync(state, { level = 5, rng, weights = WEIGHTS, search: searchOptions = {}, sliceMs = 12, signal } = {}) {
   if (signal?.aborted) throw abortError();
   if (!LEVELS[level]) throw new RangeError('level must be 1 through 10');
   if (!Number.isFinite(sliceMs) || sliceMs <= 0) throw new RangeError('sliceMs must be positive');
   if (!SEARCH_LEVELS[level]) return chooseMove(state, { level, rng, weights });
-  const search = createSearch(state, { rng, weights });
+  const budget = searchIterations(level, searchOptions);
+  const search = createSearch(state, { ...searchOptions, rng, weights });
   if (isTerminal(state) || !legalMoves(state).length) return null;
-  const budget = SEARCH_LEVELS[level].iterations;
   while (search.iterations < budget) {
     if (signal?.aborted) throw abortError();
     const start = performance.now();

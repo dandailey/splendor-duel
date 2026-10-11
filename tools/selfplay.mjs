@@ -14,13 +14,13 @@ import { summarize, sprt } from './lib/stats.mjs';
 const levels = Object.keys(LEVELS).map(Number).sort((a, b) => a - b);
 const workerCap = Math.max(1, availableParallelism() - 1);
 const usage = `Usage: node tools/selfplay.mjs --a LEVEL|random --b LEVEL|random --games N
-  [--weights-a FILE] [--weights-b FILE]
+  [--weights-a FILE] [--weights-b FILE] [--search-a JSON|FILE] [--search-b JSON|FILE]
   [--seed N] [--max-turns N] [--workers N] [--json PATH] [--sprt ELO0 ELO1]
   --ladder runs adjacent LEVELS pairs. Workers capped at ${workerCap}.`;
 
 function parse(args) {
   const config = { a: levels.at(-1), b: levels[0], games: 40, seed: 1, maxTurns: 400, workers: 1, ladder: false };
-  const flags = { '--a': 'a', '--b': 'b', '--games': 'games', '--seed': 'seed', '--max-turns': 'maxTurns', '--workers': 'workers', '--json': 'json', '--weights-a': 'weightsAFile', '--weights-b': 'weightsBFile' };
+  const flags = { '--a': 'a', '--b': 'b', '--games': 'games', '--seed': 'seed', '--max-turns': 'maxTurns', '--workers': 'workers', '--json': 'json', '--weights-a': 'weightsAFile', '--weights-b': 'weightsBFile', '--search-a': 'searchAInput', '--search-b': 'searchBInput' };
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--help' || flag === '-h') return { help: true };
@@ -33,7 +33,7 @@ function parse(args) {
     if (!flags[flag] || i + 1 >= args.length) throw new Error(`Unknown or incomplete option: ${flag}`);
     const key = flags[flag];
     const value = args[++i];
-    config[key] = ['json', 'weightsAFile', 'weightsBFile'].includes(key) || value === 'random' && (key === 'a' || key === 'b') ? value : Number(value);
+    config[key] = ['json', 'weightsAFile', 'weightsBFile', 'searchAInput', 'searchBInput'].includes(key) || value === 'random' && (key === 'a' || key === 'b') ? value : Number(value);
   }
   for (const key of ['a', 'b']) {
     if (config[key] !== 'random' && !levels.includes(config[key])) throw new Error(`${key} must be random or one of ${levels.join(', ')}`);
@@ -68,6 +68,7 @@ export function playGame(config, index) {
   let turns = 0;
   let decisions = 0;
   const timing = {};
+  const seatTiming = {};
   while (!isTerminal(state) && turns < config.maxTurns) {
     const isA = `player${state.currentPlayer}` === aSeat;
     const kind = isA ? config.a : config.b;
@@ -78,18 +79,21 @@ export function playGame(config, index) {
     if (kind === 'random') {
       const moves = legalMoves(state);
       move = moves[Math.floor(moveRng() * moves.length)];
-    } else move = chooseMove(state, { level: kind, rng: moveRng, weights });
+    } else move = chooseMove(state, { level: kind, rng: moveRng, weights, search: isA ? config.searchA : config.searchB });
     const elapsed = performance.now() - start;
     const bucket = timing[kind] ??= { ms: 0, decisions: 0 };
     bucket.ms += elapsed;
     bucket.decisions++;
+    const seatBucket = seatTiming[isA ? 'a' : 'b'] ??= { ms: 0, decisions: 0 };
+    seatBucket.ms += elapsed;
+    seatBucket.decisions++;
     if (!move) throw new Error(`No move in nonterminal game ${index}, decision ${decisions}`);
     const result = applyMoveWithEvents(state, move, rng(decisionSeed(seed, decisions, 0xc4a9ce)));
     state = result.state;
     decisions++;
     if (result.events.some(e => e.type === 'turn_ended' || e.type === 'game_over')) turns++;
   }
-  return { index, outcome: !isTerminal(state) ? 'draw' : winner(state) === aSeat ? 'a' : 'b', turns, decisions, timing };
+  return { index, outcome: !isTerminal(state) ? 'draw' : winner(state) === aSeat ? 'a' : 'b', turns, decisions, timing, seatTiming };
 }
 
 export async function runMatch(config) {
@@ -99,6 +103,7 @@ export async function runMatch(config) {
   let turns = 0;
   let completed = 0;
   const timing = {};
+  const seatTiming = {};
   let sequential;
   const aggregate = result => {
     completed++;
@@ -111,9 +116,14 @@ export async function runMatch(config) {
       total.ms += bucket.ms;
       total.decisions += bucket.decisions;
     }
+    for (const [seat, bucket] of Object.entries(result.seatTiming)) {
+      const total = seatTiming[seat] ??= { ms: 0, decisions: 0 };
+      total.ms += bucket.ms;
+      total.decisions += bucket.decisions;
+    }
     if (config.sprt) sequential = sprt(winsA, draws, winsB, ...config.sprt);
   };
-  if (config.workers === 1) {
+  if (config.workers === 1 && config.timeoutMs === undefined) {
     for (let index = 0; index < config.games; index++) {
       aggregate(playGame(config, index));
       if (sequential && sequential.decision !== 'continue') break;
@@ -124,14 +134,17 @@ export async function runMatch(config) {
     const workers = [];
     const pending = new Map();
     let nextIndex = 0;
+    let deadlineTimer;
     await new Promise((resolve, reject) => {
       let stopped = false;
+      const fail = error => { stopped = true; reject(error); };
+      if (config.timeoutMs !== undefined) deadlineTimer = setTimeout(() => fail(Object.assign(new Error('Match time limit reached'), { name: 'TimeoutError' })), config.timeoutMs);
       const finish = () => { stopped = true; resolve(); };
       for (let slot = 0; slot < config.workers; slot++) {
         const worker = new Worker(new URL(import.meta.url), { workerData: { config, slot } });
         workers.push(worker);
-        worker.on('error', reject);
-        worker.on('exit', code => { if (!stopped && code !== 0) reject(new Error(`Worker exited with code ${code}`)); });
+        worker.on('error', fail);
+        worker.on('exit', code => { if (!stopped && code !== 0) fail(new Error(`Worker exited with code ${code}`)); });
         worker.on('message', result => {
           if (stopped) return;
           pending.set(result.index, { result, worker });
@@ -144,32 +157,42 @@ export async function runMatch(config) {
           }
         });
       }
-    }).finally(async () => { await Promise.all(workers.map(worker => worker.terminate())); });
+    }).finally(async () => { clearTimeout(deadlineTimer); await Promise.all(workers.map(worker => worker.terminate())); });
   }
   const stats = summarize(winsA, draws, winsB);
   return {
     a: config.a, b: config.b, requestedGames: config.games, seed: config.seed,
     maxTurns: config.maxTurns, workers: config.workers,
+    searchA: config.searchA ?? {}, searchB: config.searchB ?? {},
+    meanMsPerDecisionBySeat: Object.fromEntries(Object.entries(seatTiming).map(([seat, bucket]) => [seat, bucket.ms / bucket.decisions])),
     winsA, winsB, draws, ...stats, averageTurns: turns / completed,
     meanMsPerDecision: Object.fromEntries(Object.entries(timing).map(([kind, bucket]) => [kind, bucket.ms / bucket.decisions])),
     ...(sequential ? { sprt: sequential } : {})
   };
 }
 
-export async function playMatch({ weightsA, weightsB, levelA = 5, levelB = 5, games = 16, seed = 1, workers = 1, maxTurns = 400 }) {
+export async function playMatch({ weightsA, weightsB, levelA = 5, levelB = 5, games = 16, seed = 1, workers = 1, maxTurns = 400, searchA, searchB, timeoutMs }) {
   const config = parse(['--a', String(levelA), '--b', String(levelB), '--games', String(games), '--seed', String(seed), '--workers', String(workers), '--max-turns', String(maxTurns)]);
-  return runMatch({ ...config, weightsA: weightsA && unflattenWeights(clampWeights(weightsA)), weightsB: weightsB && unflattenWeights(clampWeights(weightsB)) });
+  return runMatch({ ...config, searchA, searchB, timeoutMs, weightsA: weightsA && unflattenWeights(clampWeights(weightsA)), weightsB: weightsB && unflattenWeights(clampWeights(weightsB)) });
 }
 
+export async function readSearchInput(input) {
+  const value = JSON.parse(input.trim().startsWith('{') ? input : await readFile(input, 'utf8'));
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('search must be a JSON object');
+  return value;
+}
 function label(kind) { return kind === 'random' ? 'random' : `L${kind}`; }
 function summary(result) {
-  return `${label(result.a)} vs ${label(result.b)}: wins A ${result.winsA} / wins B ${result.winsB} / draws ${result.draws}; score A ${result.scorePercent.toFixed(1)}%; Elo ${result.elo.toFixed(1)} [95% CI ${result.ci95.map(n => n.toFixed(1)).join(', ')}]; avg turns ${result.averageTurns.toFixed(1)}`;
+  return `${label(result.a)} vs ${label(result.b)}: wins A ${result.winsA} / wins B ${result.winsB} / draws ${result.draws}; score A ${result.scorePercent.toFixed(1)}%; Elo ${result.elo.toFixed(1)} [95% CI ${result.ci95.map(n => n.toFixed(1)).join(', ')}]; avg turns ${result.averageTurns.toFixed(1)}; search A ${JSON.stringify(result.searchA)} / B ${JSON.stringify(result.searchB)}`;
 }
 export async function main(args = process.argv.slice(2), log = console.log) {
   const config = parse(args);
   if (config.help) { log(usage); return; }
   for (const key of ['weightsA', 'weightsB']) if (config[`${key}File`]) {
     config[key] = unflattenWeights(clampWeights(JSON.parse(await readFile(config[`${key}File`], 'utf8'))));
+  }
+  for (const key of ['searchA', 'searchB']) if (config[`${key}Input`]) {
+    config[key] = await readSearchInput(config[`${key}Input`]);
   }
   let output;
   if (config.ladder) {
@@ -184,7 +207,7 @@ export async function main(args = process.argv.slice(2), log = console.log) {
       log(`${`${label(result.a)} v ${label(result.b)}`.padEnd(10)} ${`${result.winsA} / ${result.winsB} / ${result.draws}`.padEnd(15)} ${`${result.scorePercent.toFixed(1)}%`.padEnd(9)} ${`${result.elo.toFixed(1)} [${result.ci95.map(n => n.toFixed(1)).join(', ')}]`.padEnd(26)} ${cumulative.toFixed(1).padEnd(16)} ${result.averageTurns.toFixed(1)}`);
       log(`  Mean ms/decision: ${Object.entries(result.meanMsPerDecision).map(([kind, ms]) => `${label(kind)} ${ms.toFixed(2)}`).join(', ')}${result.sprt ? `; SPRT ${result.sprt.decision}, LLR ${result.sprt.llr.toFixed(3)}` : ''}`);
     }
-    log(`Summary: ladder ${matches.length} pairs, ${matches.reduce((sum, result) => sum + result.games, 0)} games; cumulative Elo ${cumulative.toFixed(1)} (baseline ${label(levels[0])} = 0)`);
+    log(`Summary: ladder ${matches.length} pairs, ${matches.reduce((sum, result) => sum + result.games, 0)} games; search A ${JSON.stringify(config.searchA ?? {})} / B ${JSON.stringify(config.searchB ?? {})}; cumulative Elo ${cumulative.toFixed(1)} (baseline ${label(levels[0])} = 0)`);
     output = { mode: 'ladder', baseline: levels[0], matches };
   } else {
     output = await runMatch(config);

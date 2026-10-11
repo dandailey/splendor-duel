@@ -108,7 +108,7 @@ function actionSummary(before, move, events) {
 }
 
 /** Includes forced resolutions and any extra turns until control leaves the AI. */
-export function runAiTurn(game, { level, rng, weights, aiPlayerId = 'player2', maxDecisions = 200 } = {}) {
+export function runAiTurn(game, { level, rng, weights, search, aiPlayerId = 'player2', maxDecisions = 200 } = {}) {
   if (!IDS.includes(aiPlayerId)) throw new Error('aiPlayerId must be player1 or player2');
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
   if (!Number.isSafeInteger(maxDecisions) || maxDecisions < 1) throw new RangeError('maxDecisions must be a positive integer');
@@ -117,7 +117,7 @@ export function runAiTurn(game, { level, rng, weights, aiPlayerId = 'player2', m
   const chanceRng = () => { const sample = rng(); chanceSamples.push(sample); return sample; };
   while (mover(state) === aiPlayerId) {
     if (moves.length >= maxDecisions) throw new Error(`AI turn exceeded maxDecisions (${maxDecisions})`);
-    const move = chooseMove(state, { level, rng, weights });
+    const move = chooseMove(state, { level, rng, weights, search });
     if (!move) throw new Error('AI has no legal move in an unfinished turn');
     const result = applyMoveWithEvents(state, move, chanceRng);
     summary.push(...actionSummary(state, move, result.events));
@@ -129,7 +129,7 @@ export function runAiTurn(game, { level, rng, weights, aiPlayerId = 'player2', m
 }
 
 /** Async boundary retains the complete turn privately until it finishes. */
-export async function runAiTurnAsync(game, { level, rng, weights, aiPlayerId = 'player2', maxDecisions = 200, signal, sliceMs } = {}) {
+export async function runAiTurnAsync(game, { level, rng, weights, search, aiPlayerId = 'player2', maxDecisions = 200, signal, sliceMs } = {}) {
   if (!IDS.includes(aiPlayerId)) throw new Error('aiPlayerId must be player1 or player2');
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
   if (!Number.isSafeInteger(maxDecisions) || maxDecisions < 1) throw new RangeError('maxDecisions must be a positive integer');
@@ -138,7 +138,7 @@ export async function runAiTurnAsync(game, { level, rng, weights, aiPlayerId = '
   const chanceRng = () => { const sample = rng(); chanceSamples.push(sample); return sample; };
   while (mover(state) === aiPlayerId) {
     if (moves.length >= maxDecisions) throw new Error(`AI turn exceeded maxDecisions (${maxDecisions})`);
-    const move = await chooseMoveAsync(state, { level, rng, weights, signal, sliceMs });
+    const move = await chooseMoveAsync(state, { level, rng, weights, search, signal, sliceMs });
     if (signal?.aborted) throw Object.assign(new Error('Turn aborted'), { name: 'AbortError' });
     if (!move) throw new Error('AI has no legal move in an unfinished turn');
     const result = applyMoveWithEvents(state, move, chanceRng);

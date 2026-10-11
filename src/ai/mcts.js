@@ -3,6 +3,8 @@ import { checkVictory } from '../engine/rules-misc.js';
 import { determinize } from './hidden.js';
 import { evaluate, WEIGHTS } from './eval.js';
 
+export const SEARCH_DEFAULTS = Object.freeze({ exploration: 1.2, leafDepth: 0, maxChildren: 16 });
+
 export const SEARCH_LEVELS = Object.freeze(Object.fromEntries(
   [150, 300, 600, 1200, 2400].map((iterations, i) => [i + 6, Object.freeze({ iterations })])
 ));
@@ -37,8 +39,8 @@ function cheapPrior(state, move, weights) {
  * Edge sums use the parent mover's perspective, not alternating depth signs.
  * Priors are ordering hints cached on first encounter, not legality caches.
  */
-export function createSearch(state, { rng, rootPlayer = mover(state), exploration = 1.2,
-  leafDepth = 0, maxChildren = 16, weights = WEIGHTS } = {}) {
+export function createSearch(state, { rng, rootPlayer = mover(state), exploration = SEARCH_DEFAULTS.exploration,
+  leafDepth = SEARCH_DEFAULTS.leafDepth, maxChildren = SEARCH_DEFAULTS.maxChildren, weights = WEIGHTS } = {}) {
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
   if (!isTerminal(state) && !['player1', 'player2'].includes(rootPlayer)) throw new RangeError('Invalid rootPlayer');
   if (!Number.isFinite(exploration) || exploration < 0) throw new RangeError('Invalid exploration');
@@ -146,7 +148,14 @@ export function createSearch(state, { rng, rootPlayer = mover(state), exploratio
     get iterations() { return iterations; }
   };
 }
-export function chooseMoveSearch(state, { level = 6, rng, weights = WEIGHTS } = {}) {
+export function searchIterations(level, search = {}) {
   if (!SEARCH_LEVELS[level]) throw new RangeError('search level must be 6 through 10');
-  return createSearch(state, { rng, weights }).step(SEARCH_LEVELS[level].iterations).best();
+  if (!search || typeof search !== 'object' || Array.isArray(search)) throw new TypeError('search must be an object');
+  const iterations = search.iterations ?? SEARCH_LEVELS[level].iterations;
+  if (!Number.isSafeInteger(iterations) || iterations < 0) throw new RangeError('iterations must be non-negative');
+  return iterations;
+}
+export function chooseMoveSearch(state, { level = 6, rng, weights = WEIGHTS, search = {} } = {}) {
+  const iterations = searchIterations(level, search);
+  return createSearch(state, { ...search, rng, weights }).step(iterations).best();
 }
