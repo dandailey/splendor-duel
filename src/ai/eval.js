@@ -2,11 +2,13 @@ import { playerBonuses, canPlaceWild } from '../engine/cards-play.js';
 import { isTerminal, winner } from '../engine/turn.js';
 
 // Mutable tuning parameters; evaluate itself never changes these or the state.
+// Tuned by SPSA self-play (474 iterations at L5, 2026-10-11): +35 Elo vs the original hand-set weights
+// (L5: CI 0.9-69.5 over 400 games). Original: points 3, crowns 2.5, threat 5, ...
 export const WEIGHTS = {
-  terminal: 1e6, points: 3, crowns: 2.5, royalNear: 1.5, colorPoints: 1.5,
-  bonus: 2, demand: 0.6, gem: 0.8, excess: 1.2, gold: 1.5, pearl: 1.2,
-  pearlDemand: 0.6, privilege: 1.2, reserve: 0.35, affordable: 2.4,
-  oneTake: 1.2, progress: 0.7, opponent: 0.9, threat: 5
+  terminal: 1e6, points: 2.799, crowns: 2.743, royalNear: 1.454, colorPoints: 1.604,
+  bonus: 2.398, demand: 0.576, gem: 0.768, excess: 1.306, gold: 1.336, pearl: 1.293,
+  pearlDemand: 0.58, privilege: 1.059, reserve: 0.342, affordable: 2.346, oneTake: 1.286,
+  progress: 0.699, opponent: 0.948, threat: 5.333
 };
 const GEMS = ['blue', 'white', 'green', 'red', 'black'];
 const COSTS = [...GEMS, 'pearl'];
