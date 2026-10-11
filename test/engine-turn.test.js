@@ -149,7 +149,11 @@ test('pass exists only without mandatory moves and skips discard and victory as 
   // Official rule: with no mandatory action the board must be replenished first; pass only if that is impossible.
   assert.deepEqual(legalMoves(state), [{ type: 'refill' }]);
   const stuck = structuredClone(state);
-  for (const color of Object.keys(stuck.bag)) stuck.bag[color] = 0;
+  for (const color of Object.keys(stuck.bag)) {
+    // Keep token conservation: park the bag's tokens with the opponent.
+    stuck.players.player2.tokens[color] = (stuck.players.player2.tokens[color] || 0) + stuck.bag[color];
+    stuck.bag[color] = 0;
+  }
   assert.deepEqual(legalMoves(stuck), [{ type: 'pass' }]);
   const next = step(stuck, { type: 'pass' }).state;
   assert.equal(next.currentPlayer, 2);
