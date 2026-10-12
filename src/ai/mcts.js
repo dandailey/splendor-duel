@@ -2,6 +2,7 @@ import { legalMoves, applyMove, mover, isTerminal, winner } from '../engine/turn
 import { checkVictory } from '../engine/rules-misc.js';
 import { determinize } from './hidden.js';
 import { evaluate, WEIGHTS } from './eval.js';
+import { evaluateLearned, loadLearnedWeights } from './learned.js';
 
 export const SEARCH_DEFAULTS = Object.freeze({ exploration: 1.2, leafDepth: 0, maxChildren: 16 });
 
@@ -40,12 +41,17 @@ function cheapPrior(state, move, weights) {
  * Priors are ordering hints cached on first encounter, not legality caches.
  */
 export function createSearch(state, { rng, rootPlayer = mover(state), exploration = SEARCH_DEFAULTS.exploration,
-  leafDepth = SEARCH_DEFAULTS.leafDepth, maxChildren = SEARCH_DEFAULTS.maxChildren, weights = WEIGHTS } = {}) {
+  leafDepth = SEARCH_DEFAULTS.leafDepth, maxChildren = SEARCH_DEFAULTS.maxChildren, weights = WEIGHTS, evaluator = 'hand', learnedWeights } = {}) {
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
   if (!isTerminal(state) && !['player1', 'player2'].includes(rootPlayer)) throw new RangeError('Invalid rootPlayer');
   if (!Number.isFinite(exploration) || exploration < 0) throw new RangeError('Invalid exploration');
   if (!Number.isSafeInteger(leafDepth) || leafDepth < 0) throw new RangeError('Invalid leafDepth');
   if (!Number.isSafeInteger(maxChildren) || maxChildren < 1) throw new RangeError('Invalid maxChildren');
+  if (!['hand', 'learned'].includes(evaluator)) throw new RangeError('Invalid evaluator');
+  if (evaluator === 'learned') learnedWeights = loadLearnedWeights(learnedWeights);
+  const evaluatePosition = (position, id) => evaluator === 'learned' ?
+    evaluateLearned(position, id, { weights: learnedWeights, hiddenPlayerId: other(rootPlayer) }) :
+    score(position, id, rootPlayer, weights);
   const rootState = structuredClone(state), root = node();
   const rootMoves = legalMoves(rootState);
   let iterations = 0;
@@ -62,7 +68,7 @@ export function createSearch(state, { rng, rootPlayer = mover(state), exploratio
     for (const move of moves) {
       const key = keyOf(move);
       if (!current.priors.has(key)) current.priors.set(key, depth === 0 ?
-        score(applyMove(position, move, sample), id, rootPlayer, weights) : cheapPrior(position, move, weights));
+        evaluatePosition(applyMove(position, move, sample), id) : cheapPrior(position, move, weights));
     }
     const keyed = moves.map(move => ({ move, key: keyOf(move) }));
     return { legal: new Set(keyed.map(candidate => candidate.key)), shortlist: keyed
@@ -105,13 +111,14 @@ export function createSearch(state, { rng, rootPlayer = mover(state), exploratio
       const id = mover(position);
       let bestNext, bestScore = -Infinity;
       for (const move of movesFor(position, rootPlayer)) {
-        const next = applyMove(position, move, sample), s = score(next, id, rootPlayer, weights);
+        const next = applyMove(position, move, sample), s = evaluatePosition(next, id);
         if (s > bestScore) { bestNext = next; bestScore = s; }
       }
       if (!bestNext) break;
       position = bestNext;
     }
-    const result = value(position, rootPlayer, weights);
+    const result = evaluator === 'learned' ? (isTerminal(position) ? (winner(position) === rootPlayer ? 1 : 0) :
+      1 / (1 + Math.exp(-evaluatePosition(position, rootPlayer)))) : value(position, rootPlayer, weights);
     for (const visited of nodes) visited.visits++;
     for (const { edge, id } of path) {
       edge.visits++;
@@ -155,7 +162,7 @@ export function searchIterations(level, search = {}) {
   if (!Number.isSafeInteger(iterations) || iterations < 0) throw new RangeError('iterations must be non-negative');
   return iterations;
 }
-export function chooseMoveSearch(state, { level = 6, rng, weights = WEIGHTS, search = {} } = {}) {
+export function chooseMoveSearch(state, { level = 6, rng, weights = WEIGHTS, evaluator = 'hand', learnedWeights, search = {} } = {}) {
   const iterations = searchIterations(level, search);
-  return createSearch(state, { ...search, rng, weights }).step(iterations).best();
+  return createSearch(state, { ...search, rng, weights, evaluator, learnedWeights }).step(iterations).best();
 }

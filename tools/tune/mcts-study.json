@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "config": {
+    "level": 7,
+    "games": 24,
+    "seed": 1,
+    "maxTurns": 400
+  },
+  "cells": [
+    {
+      "params": {
+        "exploration": 1.2,
+        "leafDepth": 0,
+        "maxChildren": 16,
+        "iterations": 300
+      },
+      "wins": 12,
+      "losses": 12,
+      "draws": 0,
+      "scorePct": 50,
+      "elo": 0,
+      "ci95": [
+        -147.22213874768048,
+        147.22213874768048
+      ],
+      "secondsPerDecision": 0.14441023606211834
+    },
+    {
+      "params": {
+        "exploration": 0.5,
+        "leafDepth": 0,
+        "maxChildren": 16,
+        "iterations": 300
+      },
+      "wins": 11,
+      "losses": 13,
+      "draws": 0,
+      "scorePct": 45.83333333333333,
+      "elo": -29.02026685944471,
+      "ci95": [
+        -182.61540351437054,
+        113.42949825979949
+      ],
+      "secondsPerDecision": 0.14516464392260695
+    }
+  ]
+}

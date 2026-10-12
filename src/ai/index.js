@@ -2,6 +2,7 @@ import { legalMoves, applyMove, mover, isTerminal, winner } from '../engine/turn
 import { determinize } from './hidden.js';
 import { checkVictory } from '../engine/rules-misc.js';
 import { evaluate, WEIGHTS } from './eval.js';
+import { evaluateLearned, loadLearnedWeights } from './learned.js';
 import { createSearch, chooseMoveSearch, SEARCH_LEVELS, searchIterations } from './mcts.js';
 export { SEARCH_LEVELS } from './mcts.js';
 
@@ -38,10 +39,14 @@ function replies(state, limit) {
 /** Required caller RNG is the sole source of randomness, including tie breaks.
  * Terminal positions return null. Retains the level 5 default.
  */
-export function chooseMove(state, { level = 5, rng, weights = WEIGHTS, search = {} } = {}) {
+export function chooseMove(state, { level = 5, rng, weights = WEIGHTS, evaluator = 'hand', learnedWeights, search = {} } = {}) {
+  if (!['hand', 'learned'].includes(evaluator)) throw new RangeError('Invalid evaluator');
+  if (evaluator === 'learned') learnedWeights = loadLearnedWeights(learnedWeights);
   if (!LEVELS[level]) throw new RangeError('level must be 1 through 10');
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
-  if (SEARCH_LEVELS[level]) return chooseMoveSearch(state, { level, rng, weights, search });
+  if (SEARCH_LEVELS[level]) return chooseMoveSearch(state, { level, rng, weights, evaluator, learnedWeights, search });
+  const score = (s, id, options = {}) => evaluator === 'learned' ?
+    evaluateLearned(s, id, { ...options, weights: learnedWeights }) : evaluate(s, id, { ...options, weights });
   const moves = legalMoves(state);
   if (!moves.length) return null;
   if (moves.length === 1) return moves[0];
@@ -60,7 +65,7 @@ export function chooseMove(state, { level = 5, rng, weights = WEIGHTS, search = 
   }
   const ranked = moves.map(move => {
     const next = applyMove(ds, move, rng);
-    return { move, next, score: evaluate(next, id, { weights }) + LEVELS[level].noise * gaussian(rng), tie: sample(rng) };
+    return { move, next, score: score(next, id) + LEVELS[level].noise * gaussian(rng), tie: sample(rng) };
   }).sort((a, b) => b.score - a.score || b.tie - a.tie);
   if (level !== 5 || isTerminal(ranked[0].next)) return ranked[0].move;
   const candidates = ranked.slice(0, LEVELS[5].candidates);
@@ -74,10 +79,10 @@ export function chooseMove(state, { level = 5, rng, weights = WEIGHTS, search = 
     const opponent = mover(candidate.next);
     for (const reply of responses) {
       const after = applyMove(candidate.next, reply, rng);
-      const value = evaluate(after, opponent, { hiddenPlayerId: opponent, weights });
+      const value = score(after, opponent, { hiddenPlayerId: opponent });
       if (value > bestValue) { bestValue = value; bestReply = after; }
     }
-    if (bestReply) candidate.score = evaluate(bestReply, id, { weights });
+    if (bestReply) candidate.score = score(bestReply, id);
   }
   candidates.sort((a, b) => b.score - a.score || b.tie - a.tie);
   return candidates[0].move;
@@ -85,13 +90,15 @@ export function chooseMove(state, { level = 5, rng, weights = WEIGHTS, search = 
 
 const abortError = () => Object.assign(new Error('Search aborted'), { name: 'AbortError' });
 /** Iteration budgets, not elapsed time, determine the result. */
-export async function chooseMoveAsync(state, { level = 5, rng, weights = WEIGHTS, search: searchOptions = {}, sliceMs = 12, signal } = {}) {
+export async function chooseMoveAsync(state, { level = 5, rng, weights = WEIGHTS, evaluator = 'hand', learnedWeights, search: searchOptions = {}, sliceMs = 12, signal } = {}) {
   if (signal?.aborted) throw abortError();
+  if (!['hand', 'learned'].includes(evaluator)) throw new RangeError('Invalid evaluator');
+  if (evaluator === 'learned') learnedWeights = loadLearnedWeights(learnedWeights);
   if (!LEVELS[level]) throw new RangeError('level must be 1 through 10');
   if (!Number.isFinite(sliceMs) || sliceMs <= 0) throw new RangeError('sliceMs must be positive');
-  if (!SEARCH_LEVELS[level]) return chooseMove(state, { level, rng, weights });
+  if (!SEARCH_LEVELS[level]) return chooseMove(state, { level, rng, weights, evaluator, learnedWeights });
   const budget = searchIterations(level, searchOptions);
-  const search = createSearch(state, { ...searchOptions, rng, weights });
+  const search = createSearch(state, { ...searchOptions, rng, weights, evaluator, learnedWeights });
   if (isTerminal(state) || !legalMoves(state).length) return null;
   while (search.iterations < budget) {
     if (signal?.aborted) throw abortError();

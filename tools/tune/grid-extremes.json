@@ -1,0 +1,6 @@
+[
+  {"exploration":1.2,"iterations":300,"leafDepth":6,"maxChildren":16},
+  {"exploration":2.6,"iterations":300,"leafDepth":0,"maxChildren":16},
+  {"exploration":1.2,"iterations":300,"leafDepth":0,"maxChildren":8},
+  {"exploration":1.2,"iterations":300,"leafDepth":0,"maxChildren":40}
+]

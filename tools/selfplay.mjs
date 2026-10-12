@@ -20,7 +20,7 @@ const usage = `Usage: node tools/selfplay.mjs --a LEVEL|random --b LEVEL|random 
 
 function parse(args) {
   const config = { a: levels.at(-1), b: levels[0], games: 40, seed: 1, maxTurns: 400, workers: 1, ladder: false };
-  const flags = { '--a': 'a', '--b': 'b', '--games': 'games', '--seed': 'seed', '--max-turns': 'maxTurns', '--workers': 'workers', '--json': 'json', '--weights-a': 'weightsAFile', '--weights-b': 'weightsBFile', '--search-a': 'searchAInput', '--search-b': 'searchBInput' };
+  const flags = { '--a': 'a', '--b': 'b', '--games': 'games', '--seed': 'seed', '--max-turns': 'maxTurns', '--workers': 'workers', '--json': 'json', '--learned-a': 'learnedAFile', '--learned-b': 'learnedBFile', '--weights-a': 'weightsAFile', '--weights-b': 'weightsBFile', '--search-a': 'searchAInput', '--search-b': 'searchBInput' };
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--help' || flag === '-h') return { help: true };
@@ -33,7 +33,7 @@ function parse(args) {
     if (!flags[flag] || i + 1 >= args.length) throw new Error(`Unknown or incomplete option: ${flag}`);
     const key = flags[flag];
     const value = args[++i];
-    config[key] = ['json', 'weightsAFile', 'weightsBFile', 'searchAInput', 'searchBInput'].includes(key) || value === 'random' && (key === 'a' || key === 'b') ? value : Number(value);
+    config[key] = ['json', 'learnedAFile', 'learnedBFile', 'weightsAFile', 'weightsBFile', 'searchAInput', 'searchBInput'].includes(key) || value === 'random' && (key === 'a' || key === 'b') ? value : Number(value);
   }
   for (const key of ['a', 'b']) {
     if (config[key] !== 'random' && !levels.includes(config[key])) throw new Error(`${key} must be random or one of ${levels.join(', ')}`);
@@ -73,13 +73,14 @@ export function playGame(config, index) {
     const isA = `player${state.currentPlayer}` === aSeat;
     const kind = isA ? config.a : config.b;
     const weights = isA ? config.weightsA : config.weightsB;
+    const learnedWeights = isA ? config.learnedA : config.learnedB;
     const moveRng = rng(decisionSeed(seed, decisions, 0xa17e));
     const start = performance.now();
     let move;
     if (kind === 'random') {
       const moves = legalMoves(state);
       move = moves[Math.floor(moveRng() * moves.length)];
-    } else move = chooseMove(state, { level: kind, rng: moveRng, weights, search: isA ? config.searchA : config.searchB });
+    } else move = chooseMove(state, { level: kind, rng: moveRng, weights, ...(learnedWeights ? { evaluator: 'learned', learnedWeights } : {}), search: isA ? config.searchA : config.searchB });
     const elapsed = performance.now() - start;
     const bucket = timing[kind] ??= { ms: 0, decisions: 0 };
     bucket.ms += elapsed;
@@ -191,6 +192,7 @@ export async function main(args = process.argv.slice(2), log = console.log) {
   for (const key of ['weightsA', 'weightsB']) if (config[`${key}File`]) {
     config[key] = unflattenWeights(clampWeights(JSON.parse(await readFile(config[`${key}File`], 'utf8'))));
   }
+  for (const key of ['learnedA', 'learnedB']) if (config[`${key}File`]) config[key] = JSON.parse(await readFile(config[`${key}File`], 'utf8'));
   for (const key of ['searchA', 'searchB']) if (config[`${key}Input`]) {
     config[key] = await readSearchInput(config[`${key}Input`]);
   }
