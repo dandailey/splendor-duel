@@ -164,7 +164,7 @@ try {
     requireThat(!button().disabled && button().textContent === 'Nudge', 'expired cooldown did not enable');
     reply = { status: 200, json: async () => ({ ok: true, next_allowed_in: 0, reachable: false, remaining_today: 0 }) };
     button().click();
-    await until(() => online.document.querySelector('#sync-nudge-message').textContent === 'Nudged Alex They have not turned on notifications.', 'success message');
+    await until(() => online.document.querySelector('#sync-nudge-message').textContent === 'Nudged Alex. They have not turned on notifications.', 'success message');
     requireThat(!button().disabled, 'client imposed a quota limit');
     online.Date.now = realNow;
     const state = stateOf(online);
