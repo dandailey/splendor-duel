@@ -31,7 +31,7 @@ test('rate limit prefers Retry-After, including zero, and falls back to body', (
 });
 
 test('all failures have the generic message, including malformed success', () => {
-  for (const status of [0, 200, 400, 403, 404, 503]) {
+  for (const status of [0, 200, 400, 404, 503]) {
     assert.deepEqual(parseNudgeResponse(status, {}, { error: 'private detail' }), {
       ok: false, error: 'failure', message: NUDGE_FAILURE
     });
@@ -69,7 +69,7 @@ test('POST uses the exact session contract and parses the response', async () =>
   let calls = 0;
   const result = await postNudge(async (url, options) => {
     calls++;
-    assert.equal(url, 'https://fake.invalid/index.php?action=session_nudge');
+    assert.equal(url, 'https://fake.invalid/index.php?action=nudge');
     assert.equal(options.method, 'POST');
     assert.deepEqual(options.headers, { 'Content-Type': 'application/json' });
     assert.deepEqual(JSON.parse(options.body), payload);
@@ -92,4 +92,11 @@ test('POST handles 429 without JSON and network/HTTP/JSON failures', async () =>
       ok: false, error: 'failure', message: NUDGE_FAILURE
     });
   }
+});
+
+test('403 is silent: no message, no cooldown', () => {
+  const r = parseNudgeResponse(403, null, { error: 'not_allowed' });
+  assert.equal(r.ok, false);
+  assert.equal(r.message, '');
+  assert.equal(r.error, 'not_allowed');
 });

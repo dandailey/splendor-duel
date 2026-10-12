@@ -128,7 +128,7 @@ try {
       json: async () => ({ error: 'rate_limited' }) };
     const fakeFetch = async (url, options) => {
       const action = new URL(url).searchParams.get('action');
-      if (action === 'session_nudge') {
+      if (action === 'nudge') {
         nudges++;
         assert.equal(options.method, 'POST');
         assert.equal(options.headers['Content-Type'], 'application/json');

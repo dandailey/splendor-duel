@@ -29,6 +29,8 @@ export function parseNudgeResponse(status, headers, body) {
     return { ok: false, error: 'rate_limited',
       cooldownSeconds: secondsValue(header) ?? secondsValue(body?.retry_after) ?? 0 };
   }
+  // 403 covers every ineligible case server-side; stay silent rather than explain.
+  if (status === 403) return { ok: false, error: 'not_allowed', message: '' };
   return { ok: false, error: 'failure', message: NUDGE_FAILURE };
 }
 
@@ -47,7 +49,7 @@ export function saveNudgeDeadline(storage, sessionId, deadline) {
 
 export async function postNudge(fetchImpl, baseUrl, payload) {
   try {
-    const response = await fetchImpl(`${baseUrl}?action=session_nudge`, {
+    const response = await fetchImpl(`${baseUrl}?action=nudge`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
