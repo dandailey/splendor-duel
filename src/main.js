@@ -7,6 +7,7 @@ import { aiTurnRecap, engineStateFromGame } from './ai/bridge.js';
 import cardsCsv from "./splendor_cards.csv?raw";
 import { buildPushMeta, buildLobbyMeta } from "./push-meta.js";
 import { nativePushAvailable, nativePush } from "./native-push.js";
+import { formatCountdown, loadNudgeDeadline, saveNudgeDeadline, postNudge } from './nudge.js';
 import {
   awardPrivilege,
   consumeExtraTurn,
@@ -3359,11 +3360,13 @@ const generateGameLayout = () => {
           <span class="sync-mode" id="sync-mode">Local</span>
           <span class="sync-session-id" id="sync-session-id" style="display: none;"></span>
           <span class="sync-turn-indicator" id="sync-turn-indicator"></span>
+          <button class="action-button sync-nudge-btn" id="sync-nudge-btn" type="button" aria-label="Nudge opponent" hidden>Nudge</button>
         </div>
         <button class="settings-btn" id="settings-btn" title="Game settings" onclick="window.showSettings()">⚙</button>
       </div>
       ${vsComputer.enabled && (vsComputer.busy || vsComputer.error) ? `<div class="ai-thinking" role="status" aria-live="polite"><div>${vsComputer.error || 'Computer is thinking...'}${vsComputer.error ? '<button class="action-button" data-ai-retry onclick="window.retryComputerTurn()">Retry computer turn</button>' : ''}</div></div>` : ''}
       <div class="sync-turn-warning" id="turn-guard-message" aria-live="polite"></div>
+      <div id="sync-nudge-message" class="sync-nudge-message" role="status" aria-live="polite" hidden></div>
       <!-- Top Bar: Token Board (left) and Opponent Stats (right) -->
       <div class="top-bar">
         <div class="token-board-container" id="token-board-top">
@@ -6251,6 +6254,77 @@ const syncAfterTurn = async () => {
   }
 };
 
+// Per-session memory also retains cooldowns when localStorage is unavailable.
+const nudgeSessions = new Map();
+let nudgeTimerId = null;
+let nudgePageHidden = false;
+const stopNudgeTimer = () => {
+  if (nudgeTimerId !== null) clearInterval(nudgeTimerId);
+  nudgeTimerId = null;
+};
+const nudgeVisible = () => {
+  const opponentId = syncContext.localPlayerId === 'player1' ? 'player2' : 'player1';
+  const opponentActor = gameState.syncAssignments?.[`${opponentId}Id`];
+  return syncContext.enabled && !vsComputer.enabled && !!syncContext.sessionId
+    && !!syncContext.localPlayerId && !isGameOver() && !isLocalPlayersTurn()
+    && !!opponentActor && opponentActor !== clientId;
+};
+const getNudgeSession = sessionId => {
+  if (!nudgeSessions.has(sessionId)) {
+    let deadline = 0;
+    try { deadline = loadNudgeDeadline(window.localStorage, sessionId); } catch { /* Storage getter can throw. */ }
+    nudgeSessions.set(sessionId, { deadline, pending: false, message: '' });
+  }
+  return nudgeSessions.get(sessionId);
+};
+const sendNudge = async () => {
+  if (!nudgeVisible()) return;
+  const sessionId = syncContext.sessionId;
+  const state = getNudgeSession(sessionId);
+  if (state.pending || state.deadline > Date.now()) return;
+  const opponentId = syncContext.localPlayerId === 'player1' ? 'player2' : 'player1';
+  const opponentName = gameState.players[opponentId]?.name || 'your opponent';
+  state.pending = true;
+  state.message = '';
+  updateNudgeUI();
+  const result = await postNudge(fetch, gameSyncClient.baseUrl, {
+    actor_id: clientId, game_type: gameSyncClient.gameType, session_id: sessionId
+  });
+  state.pending = false;
+  if (result.ok || result.error === 'rate_limited') {
+    state.deadline = Date.now() + result.cooldownSeconds * 1000;
+    try { saveNudgeDeadline(window.localStorage, sessionId, state.deadline); } catch { /* Storage getter can throw. */ }
+    state.message = result.ok ? `Nudged ${opponentName}.${result.reachable === false ? ' They have not turned on notifications.' : ''}` : '';
+  } else state.message = result.message;
+  updateNudgeUI();
+};
+const updateNudgeUI = () => {
+  const button = document.getElementById('sync-nudge-btn');
+  const message = document.getElementById('sync-nudge-message');
+  const visible = !!button && nudgeVisible();
+  if (button) button.hidden = !visible;
+  if (!visible) {
+    if (message) message.hidden = true;
+    stopNudgeTimer();
+    return;
+  }
+  const state = getNudgeSession(syncContext.sessionId);
+  const remaining = Math.max(0, state.deadline - Date.now());
+  button.disabled = state.pending || remaining > 0;
+  button.textContent = state.pending ? 'Nudging…' : remaining > 0 ? `Nudge in ${formatCountdown(remaining)}` : 'Nudge';
+  button.onclick = sendNudge;
+  if (message) {
+    message.textContent = state.message;
+    message.hidden = !state.message;
+  }
+  if (remaining > 0 && !nudgePageHidden && nudgeTimerId === null) nudgeTimerId = setInterval(updateNudgeUI, 1000);
+  if (remaining === 0) stopNudgeTimer();
+};
+const suspendNudgeTimer = () => { nudgePageHidden = true; stopNudgeTimer(); };
+window.addEventListener('pagehide', suspendNudgeTimer);
+window.addEventListener('beforeunload', suspendNudgeTimer);
+window.addEventListener('pageshow', () => { nudgePageHidden = false; updateNudgeUI(); });
+
 // Helper function to update sync UI
 const updateSyncUI = () => {
   const indicator = document.getElementById("sync-indicator");
@@ -6258,6 +6332,7 @@ const updateSyncUI = () => {
   const sessionIdEl = document.getElementById("sync-session-id");
   const turnIndicator = document.getElementById("sync-turn-indicator");
   
+  updateNudgeUI();
   if (!indicator || !mode) return;
   
   // Update indicator color

@@ -4577,6 +4577,20 @@ html.tab-inactive .reserved-section.reserved-affordable {
   cursor: not-allowed;
 }
 
+.action-button.sync-nudge-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.sync-nudge-message {
+  padding: 4px 12px;
+  font-size: 11px;
+  text-align: center;
+}
+
 .buy-button {
   background-color: #4a90e2;
   color: white;

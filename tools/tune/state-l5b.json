@@ -1,0 +1,2022 @@
+{
+  "version": 1,
+  "theta": {
+    "affordable": 2.353431409838315,
+    "bonus": 2.512808461505175,
+    "colorPoints": 1.583533815635698,
+    "crowns": 2.7950678788546117,
+    "demand": 0.5984070445984488,
+    "excess": 1.3015277639265121,
+    "gem": 0.7458077535421307,
+    "gold": 1.312237312664021,
+    "oneTake": 1.2935792016969057,
+    "opponent": 0.9795880143412594,
+    "pearl": 1.312390058741734,
+    "pearlDemand": 0.5826440677834196,
+    "points": 2.7707115014793646,
+    "privilege": 1.0010448583672056,
+    "progress": 0.6972714827020227,
+    "reserve": 0.3339294718060055,
+    "royalNear": 1.435781392733984,
+    "terminal": 1018986.2395886595,
+    "threat": 5.283848405353634
+  },
+  "k": 377,
+  "history": [
+    {
+      "iteration": 1,
+      "score": 50,
+      "thetaChecksum": "003c7a0f49ee8cbb"
+    },
+    {
+      "iteration": 2,
+      "score": 81.25,
+      "thetaChecksum": "7cff20f643c60aa9"
+    },
+    {
+      "iteration": 3,
+      "score": 68.75,
+      "thetaChecksum": "795e500a5e2fccf2"
+    },
+    {
+      "iteration": 4,
+      "score": 75,
+      "thetaChecksum": "2c396b183809a504"
+    },
+    {
+      "iteration": 5,
+      "score": 43.75,
+      "thetaChecksum": "5c73d4abf777544a"
+    },
+    {
+      "iteration": 6,
+      "score": 50,
+      "thetaChecksum": "5c73d4abf777544a"
+    },
+    {
+      "iteration": 7,
+      "score": 50,
+      "thetaChecksum": "5c73d4abf777544a"
+    },
+    {
+      "iteration": 8,
+      "score": 43.75,
+      "thetaChecksum": "ad58b3a0ef231b79"
+    },
+    {
+      "iteration": 9,
+      "score": 56.25,
+      "thetaChecksum": "0564b055fca62908"
+    },
+    {
+      "iteration": 10,
+      "score": 68.75,
+      "thetaChecksum": "40f136502d85f088"
+    },
+    {
+      "iteration": 11,
+      "score": 68.75,
+      "thetaChecksum": "94ff4c1817131065"
+    },
+    {
+      "iteration": 12,
+      "score": 62.5,
+      "thetaChecksum": "567f9e8601ca2cb3"
+    },
+    {
+      "iteration": 13,
+      "score": 50,
+      "thetaChecksum": "567f9e8601ca2cb3"
+    },
+    {
+      "iteration": 14,
+      "score": 56.25,
+      "thetaChecksum": "fa225443222f195a"
+    },
+    {
+      "iteration": 15,
+      "score": 81.25,
+      "thetaChecksum": "e1f1dda267e8a1f1"
+    },
+    {
+      "iteration": 16,
+      "score": 50,
+      "thetaChecksum": "e1f1dda267e8a1f1"
+    },
+    {
+      "iteration": 17,
+      "score": 50,
+      "thetaChecksum": "e1f1dda267e8a1f1"
+    },
+    {
+      "iteration": 18,
+      "score": 50,
+      "thetaChecksum": "e1f1dda267e8a1f1"
+    },
+    {
+      "iteration": 19,
+      "score": 62.5,
+      "thetaChecksum": "a14f6e2d43645c93"
+    },
+    {
+      "iteration": 20,
+      "score": 56.25,
+      "thetaChecksum": "dffd10c9fb431bea"
+    },
+    {
+      "iteration": 21,
+      "score": 43.75,
+      "thetaChecksum": "5974c9cf4b47ae86"
+    },
+    {
+      "iteration": 22,
+      "score": 43.75,
+      "thetaChecksum": "0beedd9b8e4534f4"
+    },
+    {
+      "iteration": 23,
+      "score": 62.5,
+      "thetaChecksum": "8879e8974c6090fa"
+    },
+    {
+      "iteration": 24,
+      "score": 62.5,
+      "thetaChecksum": "aeaf70e01c3a2590"
+    },
+    {
+      "iteration": 25,
+      "score": 68.75,
+      "thetaChecksum": "ca9b8a38972e2e5e"
+    },
+    {
+      "iteration": 26,
+      "score": 75,
+      "thetaChecksum": "83c7977d97316373"
+    },
+    {
+      "iteration": 27,
+      "score": 37.5,
+      "thetaChecksum": "98f6285ee509d7cd"
+    },
+    {
+      "iteration": 28,
+      "score": 37.5,
+      "thetaChecksum": "4b2737b99476eec2"
+    },
+    {
+      "iteration": 29,
+      "score": 56.25,
+      "thetaChecksum": "0e45b22e80151237"
+    },
+    {
+      "iteration": 30,
+      "score": 56.25,
+      "thetaChecksum": "dc4a2763eacd9e76"
+    },
+    {
+      "iteration": 31,
+      "score": 75,
+      "thetaChecksum": "932c5845839a2265"
+    },
+    {
+      "iteration": 32,
+      "score": 50,
+      "thetaChecksum": "932c5845839a2265"
+    },
+    {
+      "iteration": 33,
+      "score": 50,
+      "thetaChecksum": "932c5845839a2265"
+    },
+    {
+      "iteration": 34,
+      "score": 37.5,
+      "thetaChecksum": "689876f96090d22f"
+    },
+    {
+      "iteration": 35,
+      "score": 43.75,
+      "thetaChecksum": "c207da104aae1acd"
+    },
+    {
+      "iteration": 36,
+      "score": 37.5,
+      "thetaChecksum": "71c7cee94f2ba3af"
+    },
+    {
+      "iteration": 37,
+      "score": 37.5,
+      "thetaChecksum": "63637a650724b136"
+    },
+    {
+      "iteration": 38,
+      "score": 43.75,
+      "thetaChecksum": "c3129306f497160a"
+    },
+    {
+      "iteration": 39,
+      "score": 37.5,
+      "thetaChecksum": "3cc1951b298f2a9a"
+    },
+    {
+      "iteration": 40,
+      "score": 56.25,
+      "thetaChecksum": "4d563dc70a3570e7"
+    },
+    {
+      "iteration": 41,
+      "score": 50,
+      "thetaChecksum": "4d563dc70a3570e7"
+    },
+    {
+      "iteration": 42,
+      "score": 43.75,
+      "thetaChecksum": "4eab48228cba495c"
+    },
+    {
+      "iteration": 43,
+      "score": 37.5,
+      "thetaChecksum": "4b5dbdadb2270e83"
+    },
+    {
+      "iteration": 44,
+      "score": 62.5,
+      "thetaChecksum": "d8ab26ecf9cb43c3"
+    },
+    {
+      "iteration": 45,
+      "score": 43.75,
+      "thetaChecksum": "c36c711887200758"
+    },
+    {
+      "iteration": 46,
+      "score": 56.25,
+      "thetaChecksum": "3d8bf60e64a71f7c"
+    },
+    {
+      "iteration": 47,
+      "score": 56.25,
+      "thetaChecksum": "697b70d7669d02eb"
+    },
+    {
+      "iteration": 48,
+      "score": 56.25,
+      "thetaChecksum": "a968d3fee864ac68"
+    },
+    {
+      "iteration": 49,
+      "score": 50,
+      "thetaChecksum": "a968d3fee864ac68"
+    },
+    {
+      "iteration": 50,
+      "score": 62.5,
+      "thetaChecksum": "ac4eafacb738cc15"
+    },
+    {
+      "iteration": 51,
+      "score": 37.5,
+      "thetaChecksum": "ddcf09481f955efd"
+    },
+    {
+      "iteration": 52,
+      "score": 43.75,
+      "thetaChecksum": "692051882351b895"
+    },
+    {
+      "iteration": 53,
+      "score": 62.5,
+      "thetaChecksum": "34a3aef1a6627547"
+    },
+    {
+      "iteration": 54,
+      "score": 62.5,
+      "thetaChecksum": "5b02a29f82fb45d1"
+    },
+    {
+      "iteration": 55,
+      "score": 37.5,
+      "thetaChecksum": "058dce1062df6057"
+    },
+    {
+      "iteration": 56,
+      "score": 43.75,
+      "thetaChecksum": "643976f7dad62501"
+    },
+    {
+      "iteration": 57,
+      "score": 56.25,
+      "thetaChecksum": "6e62804328f8cee0"
+    },
+    {
+      "iteration": 58,
+      "score": 43.75,
+      "thetaChecksum": "3d51074f7af82ed3"
+    },
+    {
+      "iteration": 59,
+      "score": 43.75,
+      "thetaChecksum": "73c7bf7fee25a34e"
+    },
+    {
+      "iteration": 60,
+      "score": 43.75,
+      "thetaChecksum": "85041e4e350e0ec2"
+    },
+    {
+      "iteration": 61,
+      "score": 62.5,
+      "thetaChecksum": "812a76a7ff1d4d28"
+    },
+    {
+      "iteration": 62,
+      "score": 56.25,
+      "thetaChecksum": "89000dcf4a605668"
+    },
+    {
+      "iteration": 63,
+      "score": 62.5,
+      "thetaChecksum": "f057a4433e27f475"
+    },
+    {
+      "iteration": 64,
+      "score": 43.75,
+      "thetaChecksum": "7f0fb8219bbe0df2"
+    },
+    {
+      "iteration": 65,
+      "score": 68.75,
+      "thetaChecksum": "68dce0fbb4588f0e"
+    },
+    {
+      "iteration": 66,
+      "score": 18.75,
+      "thetaChecksum": "f9f3bd513ee777fc"
+    },
+    {
+      "iteration": 67,
+      "score": 62.5,
+      "thetaChecksum": "a68fdfff37ff34b1"
+    },
+    {
+      "iteration": 68,
+      "score": 18.75,
+      "thetaChecksum": "b65861299e1aacd8"
+    },
+    {
+      "iteration": 69,
+      "score": 37.5,
+      "thetaChecksum": "fef30f097da6375e"
+    },
+    {
+      "iteration": 70,
+      "score": 62.5,
+      "thetaChecksum": "10cb273544109f20"
+    },
+    {
+      "iteration": 71,
+      "score": 56.25,
+      "thetaChecksum": "e6af62a63dd3f60d"
+    },
+    {
+      "iteration": 72,
+      "score": 68.75,
+      "thetaChecksum": "cdc08697abe495ac"
+    },
+    {
+      "iteration": 73,
+      "score": 37.5,
+      "thetaChecksum": "91adc740efe55ee6"
+    },
+    {
+      "iteration": 74,
+      "score": 31.25,
+      "thetaChecksum": "8f981d65de7d95df"
+    },
+    {
+      "iteration": 75,
+      "score": 43.75,
+      "thetaChecksum": "e59ba181fc8505e9"
+    },
+    {
+      "iteration": 76,
+      "score": 50,
+      "thetaChecksum": "e59ba181fc8505e9"
+    },
+    {
+      "iteration": 77,
+      "score": 43.75,
+      "thetaChecksum": "88bfb8d2c35638ef"
+    },
+    {
+      "iteration": 78,
+      "score": 68.75,
+      "thetaChecksum": "44897f7236807d47"
+    },
+    {
+      "iteration": 79,
+      "score": 62.5,
+      "thetaChecksum": "4c8cccd48dd3dacc"
+    },
+    {
+      "iteration": 80,
+      "score": 56.25,
+      "thetaChecksum": "2fd317af5c68d7e2"
+    },
+    {
+      "iteration": 81,
+      "score": 56.25,
+      "thetaChecksum": "e2524c21f20c3136"
+    },
+    {
+      "iteration": 82,
+      "score": 56.25,
+      "thetaChecksum": "810cb55d64260542"
+    },
+    {
+      "iteration": 83,
+      "score": 37.5,
+      "thetaChecksum": "f6a5ea93e524694d"
+    },
+    {
+      "iteration": 84,
+      "score": 43.75,
+      "thetaChecksum": "05d5b6a70a8ea26e"
+    },
+    {
+      "iteration": 85,
+      "score": 56.25,
+      "thetaChecksum": "b6f7119f7d16dacb"
+    },
+    {
+      "iteration": 86,
+      "score": 62.5,
+      "thetaChecksum": "9e13b83ba0c22591"
+    },
+    {
+      "iteration": 87,
+      "score": 31.25,
+      "thetaChecksum": "4eb39fa7eb9c8f19"
+    },
+    {
+      "iteration": 88,
+      "score": 68.75,
+      "thetaChecksum": "1e8c7adfd7869cba"
+    },
+    {
+      "iteration": 89,
+      "score": 62.5,
+      "thetaChecksum": "73aad32f8a96552e"
+    },
+    {
+      "iteration": 90,
+      "score": 43.75,
+      "thetaChecksum": "8ab188915d5f8853"
+    },
+    {
+      "iteration": 91,
+      "score": 12.5,
+      "thetaChecksum": "39a14c02cfb256bf"
+    },
+    {
+      "iteration": 92,
+      "score": 50,
+      "thetaChecksum": "39a14c02cfb256bf"
+    },
+    {
+      "iteration": 93,
+      "score": 43.75,
+      "thetaChecksum": "549a75e0c7d68ab1"
+    },
+    {
+      "iteration": 94,
+      "score": 37.5,
+      "thetaChecksum": "934d7a986a3a9ec3"
+    },
+    {
+      "iteration": 95,
+      "score": 37.5,
+      "thetaChecksum": "6e5f9f6480022f1a"
+    },
+    {
+      "iteration": 96,
+      "score": 50,
+      "thetaChecksum": "6e5f9f6480022f1a"
+    },
+    {
+      "iteration": 97,
+      "score": 68.75,
+      "thetaChecksum": "d198e8856fb0d569"
+    },
+    {
+      "iteration": 98,
+      "score": 62.5,
+      "thetaChecksum": "70b8948982f6d4c6"
+    },
+    {
+      "iteration": 99,
+      "score": 62.5,
+      "thetaChecksum": "8f4a963dd194dbd3"
+    },
+    {
+      "iteration": 100,
+      "score": 50,
+      "thetaChecksum": "8f4a963dd194dbd3"
+    },
+    {
+      "iteration": 101,
+      "score": 62.5,
+      "thetaChecksum": "8e3b50a1b3fb4b49"
+    },
+    {
+      "iteration": 102,
+      "score": 43.75,
+      "thetaChecksum": "e40266cb80fca3c4"
+    },
+    {
+      "iteration": 103,
+      "score": 62.5,
+      "thetaChecksum": "993f414508f27c61"
+    },
+    {
+      "iteration": 104,
+      "score": 62.5,
+      "thetaChecksum": "f7d13f31b04ba670"
+    },
+    {
+      "iteration": 105,
+      "score": 37.5,
+      "thetaChecksum": "56d619eadaf21ec0"
+    },
+    {
+      "iteration": 106,
+      "score": 68.75,
+      "thetaChecksum": "01bbc9fd4647b797"
+    },
+    {
+      "iteration": 107,
+      "score": 62.5,
+      "thetaChecksum": "c99d179770df0c84"
+    },
+    {
+      "iteration": 108,
+      "score": 56.25,
+      "thetaChecksum": "93547dd6600530e5"
+    },
+    {
+      "iteration": 109,
+      "score": 56.25,
+      "thetaChecksum": "aa83aedacd809369"
+    },
+    {
+      "iteration": 110,
+      "score": 68.75,
+      "thetaChecksum": "9fd7934baecfcf42"
+    },
+    {
+      "iteration": 111,
+      "score": 37.5,
+      "thetaChecksum": "b1d229852160d64f"
+    },
+    {
+      "iteration": 112,
+      "score": 75,
+      "thetaChecksum": "faf3af44ea3f10ae"
+    },
+    {
+      "iteration": 113,
+      "score": 43.75,
+      "thetaChecksum": "1300f387fa637a0e"
+    },
+    {
+      "iteration": 114,
+      "score": 43.75,
+      "thetaChecksum": "cbd487f29ce2db6b"
+    },
+    {
+      "iteration": 115,
+      "score": 56.25,
+      "thetaChecksum": "bdb8d672c4851420"
+    },
+    {
+      "iteration": 116,
+      "score": 50,
+      "thetaChecksum": "bdb8d672c4851420"
+    },
+    {
+      "iteration": 117,
+      "score": 50,
+      "thetaChecksum": "bdb8d672c4851420"
+    },
+    {
+      "iteration": 118,
+      "score": 43.75,
+      "thetaChecksum": "50a1006c836fa7e1"
+    },
+    {
+      "iteration": 119,
+      "score": 31.25,
+      "thetaChecksum": "6bbed212f02abaf7"
+    },
+    {
+      "iteration": 120,
+      "score": 56.25,
+      "thetaChecksum": "df3fe67f191eb44b"
+    },
+    {
+      "iteration": 121,
+      "score": 50,
+      "thetaChecksum": "df3fe67f191eb44b"
+    },
+    {
+      "iteration": 122,
+      "score": 68.75,
+      "thetaChecksum": "0813563389fffd1d"
+    },
+    {
+      "iteration": 123,
+      "score": 50,
+      "thetaChecksum": "0813563389fffd1d"
+    },
+    {
+      "iteration": 124,
+      "score": 56.25,
+      "thetaChecksum": "0ebcd6f288680c86"
+    },
+    {
+      "iteration": 125,
+      "score": 68.75,
+      "thetaChecksum": "9dbc0cd4bdf9bb3d"
+    },
+    {
+      "iteration": 126,
+      "score": 56.25,
+      "thetaChecksum": "5b7bd126f5637268"
+    },
+    {
+      "iteration": 127,
+      "score": 43.75,
+      "thetaChecksum": "5c965edf2b60cfaf"
+    },
+    {
+      "iteration": 128,
+      "score": 62.5,
+      "thetaChecksum": "2f991e751090c642"
+    },
+    {
+      "iteration": 129,
+      "score": 56.25,
+      "thetaChecksum": "0cd203a1debcf6bb"
+    },
+    {
+      "iteration": 130,
+      "score": 50,
+      "thetaChecksum": "0cd203a1debcf6bb"
+    },
+    {
+      "iteration": 131,
+      "score": 43.75,
+      "thetaChecksum": "b36f301c0cfcc2bc"
+    },
+    {
+      "iteration": 132,
+      "score": 43.75,
+      "thetaChecksum": "6f21135ae51fc4c0"
+    },
+    {
+      "iteration": 133,
+      "score": 68.75,
+      "thetaChecksum": "6adebf69baead4d5"
+    },
+    {
+      "iteration": 134,
+      "score": 62.5,
+      "thetaChecksum": "24c80bddb960f804"
+    },
+    {
+      "iteration": 135,
+      "score": 37.5,
+      "thetaChecksum": "2d3dc527af5b8b47"
+    },
+    {
+      "iteration": 136,
+      "score": 59.375,
+      "thetaChecksum": "11f9bd4dc5be2fe2"
+    },
+    {
+      "iteration": 137,
+      "score": 50,
+      "thetaChecksum": "11f9bd4dc5be2fe2"
+    },
+    {
+      "iteration": 138,
+      "score": 43.75,
+      "thetaChecksum": "48929e3fdaeeaa61"
+    },
+    {
+      "iteration": 139,
+      "score": 43.75,
+      "thetaChecksum": "c41e7a7e3aa113ea"
+    },
+    {
+      "iteration": 140,
+      "score": 43.75,
+      "thetaChecksum": "70b573007ab3186b"
+    },
+    {
+      "iteration": 141,
+      "score": 50,
+      "thetaChecksum": "70b573007ab3186b"
+    },
+    {
+      "iteration": 142,
+      "score": 31.25,
+      "thetaChecksum": "b1f9bcb0d06550de"
+    },
+    {
+      "iteration": 143,
+      "score": 62.5,
+      "thetaChecksum": "9012fa21639a5207"
+    },
+    {
+      "iteration": 144,
+      "score": 62.5,
+      "thetaChecksum": "1305687febf90332"
+    },
+    {
+      "iteration": 145,
+      "score": 50,
+      "thetaChecksum": "1305687febf90332"
+    },
+    {
+      "iteration": 146,
+      "score": 50,
+      "thetaChecksum": "1305687febf90332"
+    },
+    {
+      "iteration": 147,
+      "score": 62.5,
+      "thetaChecksum": "f8489a0752d17557"
+    },
+    {
+      "iteration": 148,
+      "score": 50,
+      "thetaChecksum": "f8489a0752d17557"
+    },
+    {
+      "iteration": 149,
+      "score": 56.25,
+      "thetaChecksum": "ad30876253152817"
+    },
+    {
+      "iteration": 150,
+      "score": 56.25,
+      "thetaChecksum": "75f7c56107abd009"
+    },
+    {
+      "iteration": 151,
+      "score": 62.5,
+      "thetaChecksum": "90dff4f5e3b19fd5"
+    },
+    {
+      "iteration": 152,
+      "score": 37.5,
+      "thetaChecksum": "fcab419cb5f094da"
+    },
+    {
+      "iteration": 153,
+      "score": 56.25,
+      "thetaChecksum": "ddab6dcff3158658"
+    },
+    {
+      "iteration": 154,
+      "score": 25,
+      "thetaChecksum": "f93791a07470ec10"
+    },
+    {
+      "iteration": 155,
+      "score": 50,
+      "thetaChecksum": "f93791a07470ec10"
+    },
+    {
+      "iteration": 156,
+      "score": 31.25,
+      "thetaChecksum": "0177ad020ad4fc2f"
+    },
+    {
+      "iteration": 157,
+      "score": 62.5,
+      "thetaChecksum": "006ab17b0579e38f"
+    },
+    {
+      "iteration": 158,
+      "score": 37.5,
+      "thetaChecksum": "ee8bb05e3141d02d"
+    },
+    {
+      "iteration": 159,
+      "score": 50,
+      "thetaChecksum": "ee8bb05e3141d02d"
+    },
+    {
+      "iteration": 160,
+      "score": 81.25,
+      "thetaChecksum": "c662381187f45673"
+    },
+    {
+      "iteration": 161,
+      "score": 56.25,
+      "thetaChecksum": "1575e018e358dedb"
+    },
+    {
+      "iteration": 162,
+      "score": 50,
+      "thetaChecksum": "1575e018e358dedb"
+    },
+    {
+      "iteration": 163,
+      "score": 43.75,
+      "thetaChecksum": "5f0d600c528a808c"
+    },
+    {
+      "iteration": 164,
+      "score": 50,
+      "thetaChecksum": "5f0d600c528a808c"
+    },
+    {
+      "iteration": 165,
+      "score": 62.5,
+      "thetaChecksum": "44e3aff0e66060bb"
+    },
+    {
+      "iteration": 166,
+      "score": 31.25,
+      "thetaChecksum": "d889c7d9fad60cbe"
+    },
+    {
+      "iteration": 167,
+      "score": 43.75,
+      "thetaChecksum": "78943d0ef4b05f1d"
+    },
+    {
+      "iteration": 168,
+      "score": 50,
+      "thetaChecksum": "78943d0ef4b05f1d"
+    },
+    {
+      "iteration": 169,
+      "score": 68.75,
+      "thetaChecksum": "3f1192f80f474aa0"
+    },
+    {
+      "iteration": 170,
+      "score": 50,
+      "thetaChecksum": "3f1192f80f474aa0"
+    },
+    {
+      "iteration": 171,
+      "score": 81.25,
+      "thetaChecksum": "530badd652966ef7"
+    },
+    {
+      "iteration": 172,
+      "score": 56.25,
+      "thetaChecksum": "8978f1326b9eff52"
+    },
+    {
+      "iteration": 173,
+      "score": 68.75,
+      "thetaChecksum": "1535aeaf30f9bafa"
+    },
+    {
+      "iteration": 174,
+      "score": 62.5,
+      "thetaChecksum": "bee9c7be47166b67"
+    },
+    {
+      "iteration": 175,
+      "score": 62.5,
+      "thetaChecksum": "3c7e4ade51b926c9"
+    },
+    {
+      "iteration": 176,
+      "score": 37.5,
+      "thetaChecksum": "d55fdc6272bc2eaa"
+    },
+    {
+      "iteration": 177,
+      "score": 43.75,
+      "thetaChecksum": "6847d6079d77bcb5"
+    },
+    {
+      "iteration": 178,
+      "score": 37.5,
+      "thetaChecksum": "7e63a3a23dbb3f06"
+    },
+    {
+      "iteration": 179,
+      "score": 43.75,
+      "thetaChecksum": "b593d671f63eb8c3"
+    },
+    {
+      "iteration": 180,
+      "score": 62.5,
+      "thetaChecksum": "f9a1712efcfd5396"
+    },
+    {
+      "iteration": 181,
+      "score": 31.25,
+      "thetaChecksum": "02144aca78d5d880"
+    },
+    {
+      "iteration": 182,
+      "score": 37.5,
+      "thetaChecksum": "d436a0389ffaf45c"
+    },
+    {
+      "iteration": 183,
+      "score": 62.5,
+      "thetaChecksum": "0176f55c80c572c9"
+    },
+    {
+      "iteration": 184,
+      "score": 68.75,
+      "thetaChecksum": "1c224d433caab369"
+    },
+    {
+      "iteration": 185,
+      "score": 37.5,
+      "thetaChecksum": "330467b1fdd5ac85"
+    },
+    {
+      "iteration": 186,
+      "score": 50,
+      "thetaChecksum": "330467b1fdd5ac85"
+    },
+    {
+      "iteration": 187,
+      "score": 31.25,
+      "thetaChecksum": "05ff9e83743efc8f"
+    },
+    {
+      "iteration": 188,
+      "score": 62.5,
+      "thetaChecksum": "b17d99cc9e276e66"
+    },
+    {
+      "iteration": 189,
+      "score": 50,
+      "thetaChecksum": "b17d99cc9e276e66"
+    },
+    {
+      "iteration": 190,
+      "score": 37.5,
+      "thetaChecksum": "08b2148c76015377"
+    },
+    {
+      "iteration": 191,
+      "score": 68.75,
+      "thetaChecksum": "1dc561f492e8b9b6"
+    },
+    {
+      "iteration": 192,
+      "score": 43.75,
+      "thetaChecksum": "5c5467fe45fec980"
+    },
+    {
+      "iteration": 193,
+      "score": 37.5,
+      "thetaChecksum": "41431850b1bb58a9"
+    },
+    {
+      "iteration": 194,
+      "score": 50,
+      "thetaChecksum": "41431850b1bb58a9"
+    },
+    {
+      "iteration": 195,
+      "score": 31.25,
+      "thetaChecksum": "8dbe8854cbbf5eaf"
+    },
+    {
+      "iteration": 196,
+      "score": 56.25,
+      "thetaChecksum": "8a8ecfd7b79d38a6"
+    },
+    {
+      "iteration": 197,
+      "score": 62.5,
+      "thetaChecksum": "86101f41a7ad6ed6"
+    },
+    {
+      "iteration": 198,
+      "score": 75,
+      "thetaChecksum": "13d41039d437b9e4"
+    },
+    {
+      "iteration": 199,
+      "score": 43.75,
+      "thetaChecksum": "f92d63b3baf6be06"
+    },
+    {
+      "iteration": 200,
+      "score": 53.125,
+      "thetaChecksum": "f127ab6e87254a3c"
+    },
+    {
+      "iteration": 201,
+      "score": 43.75,
+      "thetaChecksum": "603159fe0854f5ec"
+    },
+    {
+      "iteration": 202,
+      "score": 56.25,
+      "thetaChecksum": "b919f2d4b52eec16"
+    },
+    {
+      "iteration": 203,
+      "score": 56.25,
+      "thetaChecksum": "36a752dbbc9fc44d"
+    },
+    {
+      "iteration": 204,
+      "score": 43.75,
+      "thetaChecksum": "2febf2a1b2345a2a"
+    },
+    {
+      "iteration": 205,
+      "score": 50,
+      "thetaChecksum": "2febf2a1b2345a2a"
+    },
+    {
+      "iteration": 206,
+      "score": 43.75,
+      "thetaChecksum": "0df6efacdfaa2ca3"
+    },
+    {
+      "iteration": 207,
+      "score": 25,
+      "thetaChecksum": "bc9c09c7f6265080"
+    },
+    {
+      "iteration": 208,
+      "score": 18.75,
+      "thetaChecksum": "0598d1d1a9743865"
+    },
+    {
+      "iteration": 209,
+      "score": 56.25,
+      "thetaChecksum": "aa5402b1adb465cb"
+    },
+    {
+      "iteration": 210,
+      "score": 56.25,
+      "thetaChecksum": "86e3cd9b6772bbf9"
+    },
+    {
+      "iteration": 211,
+      "score": 31.25,
+      "thetaChecksum": "3728c41c4407d60b"
+    },
+    {
+      "iteration": 212,
+      "score": 56.25,
+      "thetaChecksum": "033b1d788d1ab0e3"
+    },
+    {
+      "iteration": 213,
+      "score": 43.75,
+      "thetaChecksum": "830200cd96c453e7"
+    },
+    {
+      "iteration": 214,
+      "score": 56.25,
+      "thetaChecksum": "ac7a33500d0d6b84"
+    },
+    {
+      "iteration": 215,
+      "score": 50,
+      "thetaChecksum": "ac7a33500d0d6b84"
+    },
+    {
+      "iteration": 216,
+      "score": 62.5,
+      "thetaChecksum": "c2cdb286321a142d"
+    },
+    {
+      "iteration": 217,
+      "score": 25,
+      "thetaChecksum": "155cc368c4bc8029"
+    },
+    {
+      "iteration": 218,
+      "score": 56.25,
+      "thetaChecksum": "cb42f7be1916f91d"
+    },
+    {
+      "iteration": 219,
+      "score": 62.5,
+      "thetaChecksum": "4fd64405f3ffc01b"
+    },
+    {
+      "iteration": 220,
+      "score": 50,
+      "thetaChecksum": "4fd64405f3ffc01b"
+    },
+    {
+      "iteration": 221,
+      "score": 62.5,
+      "thetaChecksum": "b72bbd3134b111fe"
+    },
+    {
+      "iteration": 222,
+      "score": 43.75,
+      "thetaChecksum": "3b7a1d8777260331"
+    },
+    {
+      "iteration": 223,
+      "score": 56.25,
+      "thetaChecksum": "cf3fd1075fffb632"
+    },
+    {
+      "iteration": 224,
+      "score": 56.25,
+      "thetaChecksum": "cb90c81fb586b523"
+    },
+    {
+      "iteration": 225,
+      "score": 37.5,
+      "thetaChecksum": "46b2bc8663af3981"
+    },
+    {
+      "iteration": 226,
+      "score": 56.25,
+      "thetaChecksum": "b229216b4bd81669"
+    },
+    {
+      "iteration": 227,
+      "score": 56.25,
+      "thetaChecksum": "715cf9495ff1fe2a"
+    },
+    {
+      "iteration": 228,
+      "score": 62.5,
+      "thetaChecksum": "43144a5e6ccdfb61"
+    },
+    {
+      "iteration": 229,
+      "score": 50,
+      "thetaChecksum": "43144a5e6ccdfb61"
+    },
+    {
+      "iteration": 230,
+      "score": 18.75,
+      "thetaChecksum": "2803c2d16b8a4ff6"
+    },
+    {
+      "iteration": 231,
+      "score": 56.25,
+      "thetaChecksum": "b0c5814724e5d6ce"
+    },
+    {
+      "iteration": 232,
+      "score": 37.5,
+      "thetaChecksum": "cb19b609e34c89ef"
+    },
+    {
+      "iteration": 233,
+      "score": 43.75,
+      "thetaChecksum": "acd5c25f23c3c2bf"
+    },
+    {
+      "iteration": 234,
+      "score": 68.75,
+      "thetaChecksum": "f2a7f022ad6fac88"
+    },
+    {
+      "iteration": 235,
+      "score": 56.25,
+      "thetaChecksum": "ed1e9d44ee664dd9"
+    },
+    {
+      "iteration": 236,
+      "score": 81.25,
+      "thetaChecksum": "0cf9d529bcaf4b85"
+    },
+    {
+      "iteration": 237,
+      "score": 50,
+      "thetaChecksum": "0cf9d529bcaf4b85"
+    },
+    {
+      "iteration": 238,
+      "score": 43.75,
+      "thetaChecksum": "2f04db89b1b704cb"
+    },
+    {
+      "iteration": 239,
+      "score": 56.25,
+      "thetaChecksum": "284fd044fcd14bc9"
+    },
+    {
+      "iteration": 240,
+      "score": 37.5,
+      "thetaChecksum": "216e996315a15bb8"
+    },
+    {
+      "iteration": 241,
+      "score": 18.75,
+      "thetaChecksum": "a2476d5834f34086"
+    },
+    {
+      "iteration": 242,
+      "score": 56.25,
+      "thetaChecksum": "242e645c9a7c6eed"
+    },
+    {
+      "iteration": 243,
+      "score": 50,
+      "thetaChecksum": "242e645c9a7c6eed"
+    },
+    {
+      "iteration": 244,
+      "score": 50,
+      "thetaChecksum": "242e645c9a7c6eed"
+    },
+    {
+      "iteration": 245,
+      "score": 50,
+      "thetaChecksum": "242e645c9a7c6eed"
+    },
+    {
+      "iteration": 246,
+      "score": 56.25,
+      "thetaChecksum": "d4bfb07d9aa5fde9"
+    },
+    {
+      "iteration": 247,
+      "score": 56.25,
+      "thetaChecksum": "cfa72c76f124ae65"
+    },
+    {
+      "iteration": 248,
+      "score": 37.5,
+      "thetaChecksum": "56887f36c9cddc71"
+    },
+    {
+      "iteration": 249,
+      "score": 50,
+      "thetaChecksum": "56887f36c9cddc71"
+    },
+    {
+      "iteration": 250,
+      "score": 62.5,
+      "thetaChecksum": "b8e3bb9f6fba5bde"
+    },
+    {
+      "iteration": 251,
+      "score": 56.25,
+      "thetaChecksum": "4743b3987f3b088b"
+    },
+    {
+      "iteration": 252,
+      "score": 43.75,
+      "thetaChecksum": "1b750d5cf83af2fc"
+    },
+    {
+      "iteration": 253,
+      "score": 43.75,
+      "thetaChecksum": "5d17c119875152b4"
+    },
+    {
+      "iteration": 254,
+      "score": 50,
+      "thetaChecksum": "5d17c119875152b4"
+    },
+    {
+      "iteration": 255,
+      "score": 50,
+      "thetaChecksum": "5d17c119875152b4"
+    },
+    {
+      "iteration": 256,
+      "score": 43.75,
+      "thetaChecksum": "bd008251ec4d2143"
+    },
+    {
+      "iteration": 257,
+      "score": 37.5,
+      "thetaChecksum": "6d0004cb619d6479"
+    },
+    {
+      "iteration": 258,
+      "score": 37.5,
+      "thetaChecksum": "69933736d3f5b864"
+    },
+    {
+      "iteration": 259,
+      "score": 37.5,
+      "thetaChecksum": "578a5083e5ef92f3"
+    },
+    {
+      "iteration": 260,
+      "score": 25,
+      "thetaChecksum": "f2d4b65c7b4037d8"
+    },
+    {
+      "iteration": 261,
+      "score": 31.25,
+      "thetaChecksum": "a8a69b3eaa732c5b"
+    },
+    {
+      "iteration": 262,
+      "score": 37.5,
+      "thetaChecksum": "e95a46bf9c0b5020"
+    },
+    {
+      "iteration": 263,
+      "score": 62.5,
+      "thetaChecksum": "6af832f8b7afc840"
+    },
+    {
+      "iteration": 264,
+      "score": 62.5,
+      "thetaChecksum": "eb27234b0cafc3d3"
+    },
+    {
+      "iteration": 265,
+      "score": 43.75,
+      "thetaChecksum": "080ea17d30b4b2c2"
+    },
+    {
+      "iteration": 266,
+      "score": 37.5,
+      "thetaChecksum": "cdd3bb00b59c03d4"
+    },
+    {
+      "iteration": 267,
+      "score": 37.5,
+      "thetaChecksum": "bb0fc5f2c7ac6742"
+    },
+    {
+      "iteration": 268,
+      "score": 75,
+      "thetaChecksum": "0c7c8f4a2fe74359"
+    },
+    {
+      "iteration": 269,
+      "score": 62.5,
+      "thetaChecksum": "bb70e6d3135088d7"
+    },
+    {
+      "iteration": 270,
+      "score": 62.5,
+      "thetaChecksum": "94c7a20850c186f1"
+    },
+    {
+      "iteration": 271,
+      "score": 56.25,
+      "thetaChecksum": "591c1eceba8eb799"
+    },
+    {
+      "iteration": 272,
+      "score": 37.5,
+      "thetaChecksum": "4647630394609699"
+    },
+    {
+      "iteration": 273,
+      "score": 46.875,
+      "thetaChecksum": "307394520eba900b"
+    },
+    {
+      "iteration": 274,
+      "score": 37.5,
+      "thetaChecksum": "f1e2065a4788434e"
+    },
+    {
+      "iteration": 275,
+      "score": 31.25,
+      "thetaChecksum": "528415b830d11da5"
+    },
+    {
+      "iteration": 276,
+      "score": 43.75,
+      "thetaChecksum": "bd704685afe0c821"
+    },
+    {
+      "iteration": 277,
+      "score": 37.5,
+      "thetaChecksum": "cb3012e490041ab2"
+    },
+    {
+      "iteration": 278,
+      "score": 56.25,
+      "thetaChecksum": "0cb7881edf17c451"
+    },
+    {
+      "iteration": 279,
+      "score": 37.5,
+      "thetaChecksum": "2c5f49752c7af4ad"
+    },
+    {
+      "iteration": 280,
+      "score": 50,
+      "thetaChecksum": "2c5f49752c7af4ad"
+    },
+    {
+      "iteration": 281,
+      "score": 62.5,
+      "thetaChecksum": "55984e4d9853ed83"
+    },
+    {
+      "iteration": 282,
+      "score": 50,
+      "thetaChecksum": "55984e4d9853ed83"
+    },
+    {
+      "iteration": 283,
+      "score": 50,
+      "thetaChecksum": "55984e4d9853ed83"
+    },
+    {
+      "iteration": 284,
+      "score": 37.5,
+      "thetaChecksum": "83865bc0a93760d6"
+    },
+    {
+      "iteration": 285,
+      "score": 56.25,
+      "thetaChecksum": "c48d53e170c6f3fd"
+    },
+    {
+      "iteration": 286,
+      "score": 50,
+      "thetaChecksum": "c48d53e170c6f3fd"
+    },
+    {
+      "iteration": 287,
+      "score": 50,
+      "thetaChecksum": "c48d53e170c6f3fd"
+    },
+    {
+      "iteration": 288,
+      "score": 50,
+      "thetaChecksum": "c48d53e170c6f3fd"
+    },
+    {
+      "iteration": 289,
+      "score": 68.75,
+      "thetaChecksum": "a09c466d48b1ab0f"
+    },
+    {
+      "iteration": 290,
+      "score": 50,
+      "thetaChecksum": "a09c466d48b1ab0f"
+    },
+    {
+      "iteration": 291,
+      "score": 43.75,
+      "thetaChecksum": "19df046a50f323b9"
+    },
+    {
+      "iteration": 292,
+      "score": 43.75,
+      "thetaChecksum": "489bdede35a4547e"
+    },
+    {
+      "iteration": 293,
+      "score": 62.5,
+      "thetaChecksum": "1182581c658419e1"
+    },
+    {
+      "iteration": 294,
+      "score": 50,
+      "thetaChecksum": "1182581c658419e1"
+    },
+    {
+      "iteration": 295,
+      "score": 75,
+      "thetaChecksum": "66ffe4cca83a0c24"
+    },
+    {
+      "iteration": 296,
+      "score": 56.25,
+      "thetaChecksum": "6907b21829aec12f"
+    },
+    {
+      "iteration": 297,
+      "score": 31.25,
+      "thetaChecksum": "ab4ecf0fa74b6220"
+    },
+    {
+      "iteration": 298,
+      "score": 43.75,
+      "thetaChecksum": "22a6cf36dfd866e5"
+    },
+    {
+      "iteration": 299,
+      "score": 75,
+      "thetaChecksum": "0d47dd4673077b6e"
+    },
+    {
+      "iteration": 300,
+      "score": 18.75,
+      "thetaChecksum": "037895cca695f7aa"
+    },
+    {
+      "iteration": 301,
+      "score": 37.5,
+      "thetaChecksum": "320c9e4636eb2070"
+    },
+    {
+      "iteration": 302,
+      "score": 56.25,
+      "thetaChecksum": "c4f1c474cde4d5bc"
+    },
+    {
+      "iteration": 303,
+      "score": 56.25,
+      "thetaChecksum": "770f00879dfb432b"
+    },
+    {
+      "iteration": 304,
+      "score": 37.5,
+      "thetaChecksum": "f483d850a3e14a34"
+    },
+    {
+      "iteration": 305,
+      "score": 62.5,
+      "thetaChecksum": "cf78ce601c8956ba"
+    },
+    {
+      "iteration": 306,
+      "score": 37.5,
+      "thetaChecksum": "2bc58f5c3125f0fa"
+    },
+    {
+      "iteration": 307,
+      "score": 56.25,
+      "thetaChecksum": "ad1d0dd706b086d7"
+    },
+    {
+      "iteration": 308,
+      "score": 50,
+      "thetaChecksum": "ad1d0dd706b086d7"
+    },
+    {
+      "iteration": 309,
+      "score": 43.75,
+      "thetaChecksum": "5bb96a5c8c6f19a0"
+    },
+    {
+      "iteration": 310,
+      "score": 31.25,
+      "thetaChecksum": "2f7fb3cb8d8957ea"
+    },
+    {
+      "iteration": 311,
+      "score": 62.5,
+      "thetaChecksum": "8aae7041d1206efe"
+    },
+    {
+      "iteration": 312,
+      "score": 43.75,
+      "thetaChecksum": "2c8fa6ae83896140"
+    },
+    {
+      "iteration": 313,
+      "score": 50,
+      "thetaChecksum": "2c8fa6ae83896140"
+    },
+    {
+      "iteration": 314,
+      "score": 31.25,
+      "thetaChecksum": "2f9efe1afb97d50f"
+    },
+    {
+      "iteration": 315,
+      "score": 50,
+      "thetaChecksum": "2f9efe1afb97d50f"
+    },
+    {
+      "iteration": 316,
+      "score": 50,
+      "thetaChecksum": "2f9efe1afb97d50f"
+    },
+    {
+      "iteration": 317,
+      "score": 43.75,
+      "thetaChecksum": "56d4f53930cce35c"
+    },
+    {
+      "iteration": 318,
+      "score": 50,
+      "thetaChecksum": "56d4f53930cce35c"
+    },
+    {
+      "iteration": 319,
+      "score": 18.75,
+      "thetaChecksum": "7de761fe4a13d9c4"
+    },
+    {
+      "iteration": 320,
+      "score": 50,
+      "thetaChecksum": "7de761fe4a13d9c4"
+    },
+    {
+      "iteration": 321,
+      "score": 68.75,
+      "thetaChecksum": "6704ec087b1fa880"
+    },
+    {
+      "iteration": 322,
+      "score": 18.75,
+      "thetaChecksum": "eff09fafc993540e"
+    },
+    {
+      "iteration": 323,
+      "score": 43.75,
+      "thetaChecksum": "bb6b431e3cc2aa80"
+    },
+    {
+      "iteration": 324,
+      "score": 50,
+      "thetaChecksum": "bb6b431e3cc2aa80"
+    },
+    {
+      "iteration": 325,
+      "score": 62.5,
+      "thetaChecksum": "6824e714886ec452"
+    },
+    {
+      "iteration": 326,
+      "score": 56.25,
+      "thetaChecksum": "3c075b5355770a7b"
+    },
+    {
+      "iteration": 327,
+      "score": 50,
+      "thetaChecksum": "3c075b5355770a7b"
+    },
+    {
+      "iteration": 328,
+      "score": 50,
+      "thetaChecksum": "3c075b5355770a7b"
+    },
+    {
+      "iteration": 329,
+      "score": 37.5,
+      "thetaChecksum": "f0cbf9a55da67f9d"
+    },
+    {
+      "iteration": 330,
+      "score": 50,
+      "thetaChecksum": "f0cbf9a55da67f9d"
+    },
+    {
+      "iteration": 331,
+      "score": 43.75,
+      "thetaChecksum": "ce36058e6a58afb8"
+    },
+    {
+      "iteration": 332,
+      "score": 56.25,
+      "thetaChecksum": "aac6a6fdd9610c26"
+    },
+    {
+      "iteration": 333,
+      "score": 37.5,
+      "thetaChecksum": "903c76b0151460c8"
+    },
+    {
+      "iteration": 334,
+      "score": 43.75,
+      "thetaChecksum": "1649c3a41b49cc24"
+    },
+    {
+      "iteration": 335,
+      "score": 37.5,
+      "thetaChecksum": "06a843f8730af200"
+    },
+    {
+      "iteration": 336,
+      "score": 43.75,
+      "thetaChecksum": "4eb2e41933d726e1"
+    },
+    {
+      "iteration": 337,
+      "score": 37.5,
+      "thetaChecksum": "00e5cf410a36afcd"
+    },
+    {
+      "iteration": 338,
+      "score": 68.75,
+      "thetaChecksum": "dd4ef1bc3da07278"
+    },
+    {
+      "iteration": 339,
+      "score": 56.25,
+      "thetaChecksum": "0c6bb252f7b1ff1a"
+    },
+    {
+      "iteration": 340,
+      "score": 43.75,
+      "thetaChecksum": "87f01b96ef0904c8"
+    },
+    {
+      "iteration": 341,
+      "score": 56.25,
+      "thetaChecksum": "bc4a62c6961ce6b6"
+    },
+    {
+      "iteration": 342,
+      "score": 50,
+      "thetaChecksum": "bc4a62c6961ce6b6"
+    },
+    {
+      "iteration": 343,
+      "score": 62.5,
+      "thetaChecksum": "fa780dac97e82a0d"
+    },
+    {
+      "iteration": 344,
+      "score": 68.75,
+      "thetaChecksum": "15dfead0475374f6"
+    },
+    {
+      "iteration": 345,
+      "score": 31.25,
+      "thetaChecksum": "ac2236a81e512f6b"
+    },
+    {
+      "iteration": 346,
+      "score": 37.5,
+      "thetaChecksum": "6c7191f4951f0969"
+    },
+    {
+      "iteration": 347,
+      "score": 18.75,
+      "thetaChecksum": "051584094ef43c26"
+    },
+    {
+      "iteration": 348,
+      "score": 37.5,
+      "thetaChecksum": "7f91c4f9f0eba58d"
+    },
+    {
+      "iteration": 349,
+      "score": 25,
+      "thetaChecksum": "fba9683428645244"
+    },
+    {
+      "iteration": 350,
+      "score": 43.75,
+      "thetaChecksum": "93f8149a38b91853"
+    },
+    {
+      "iteration": 351,
+      "score": 56.25,
+      "thetaChecksum": "70df4c9e5976512b"
+    },
+    {
+      "iteration": 352,
+      "score": 37.5,
+      "thetaChecksum": "063c328cd3308f0a"
+    },
+    {
+      "iteration": 353,
+      "score": 62.5,
+      "thetaChecksum": "e80052fb7821d8e3"
+    },
+    {
+      "iteration": 354,
+      "score": 50,
+      "thetaChecksum": "e80052fb7821d8e3"
+    },
+    {
+      "iteration": 355,
+      "score": 50,
+      "thetaChecksum": "e80052fb7821d8e3"
+    },
+    {
+      "iteration": 356,
+      "score": 43.75,
+      "thetaChecksum": "fa949a4fedf90f86"
+    },
+    {
+      "iteration": 357,
+      "score": 56.25,
+      "thetaChecksum": "a8e2737a550843ca"
+    },
+    {
+      "iteration": 358,
+      "score": 43.75,
+      "thetaChecksum": "5d46acf66d080c57"
+    },
+    {
+      "iteration": 359,
+      "score": 50,
+      "thetaChecksum": "5d46acf66d080c57"
+    },
+    {
+      "iteration": 360,
+      "score": 50,
+      "thetaChecksum": "5d46acf66d080c57"
+    },
+    {
+      "iteration": 361,
+      "score": 50,
+      "thetaChecksum": "5d46acf66d080c57"
+    },
+    {
+      "iteration": 362,
+      "score": 56.25,
+      "thetaChecksum": "73994894bb98c7ca"
+    },
+    {
+      "iteration": 363,
+      "score": 37.5,
+      "thetaChecksum": "782afdb96697cf46"
+    },
+    {
+      "iteration": 364,
+      "score": 56.25,
+      "thetaChecksum": "48267ab87ac33e0d"
+    },
+    {
+      "iteration": 365,
+      "score": 68.75,
+      "thetaChecksum": "a8bd374d096f3a7b"
+    },
+    {
+      "iteration": 366,
+      "score": 75,
+      "thetaChecksum": "d0c7eab24329f344"
+    },
+    {
+      "iteration": 367,
+      "score": 62.5,
+      "thetaChecksum": "2010bc8d89611a93"
+    },
+    {
+      "iteration": 368,
+      "score": 31.25,
+      "thetaChecksum": "11a4063d09335b00"
+    },
+    {
+      "iteration": 369,
+      "score": 43.75,
+      "thetaChecksum": "5e86a261521af99b"
+    },
+    {
+      "iteration": 370,
+      "score": 62.5,
+      "thetaChecksum": "374dad3a4328c652"
+    },
+    {
+      "iteration": 371,
+      "score": 31.25,
+      "thetaChecksum": "4da10ca8e446a839"
+    },
+    {
+      "iteration": 372,
+      "score": 25,
+      "thetaChecksum": "e09be7661de48f35"
+    },
+    {
+      "iteration": 373,
+      "score": 43.75,
+      "thetaChecksum": "7f8946e81eb772be"
+    },
+    {
+      "iteration": 374,
+      "score": 31.25,
+      "thetaChecksum": "f767d14d61bcee9d"
+    },
+    {
+      "iteration": 375,
+      "score": 68.75,
+      "thetaChecksum": "fc0560bb94f9ed9c"
+    },
+    {
+      "iteration": 376,
+      "score": 56.25,
+      "thetaChecksum": "003bfae19cefa162"
+    },
+    {
+      "iteration": 377,
+      "score": 50,
+      "thetaChecksum": "003bfae19cefa162"
+    }
+  ],
+  "rngState": 1686373381,
+  "config": {
+    "games": 16,
+    "level": 5,
+    "workers": 2,
+    "seed": 1,
+    "a": 0.5,
+    "A": 10,
+    "alpha": 0.602,
+    "c": 1,
+    "gamma": 0.101,
+    "maxChange": 0.05
+  },
+  "paramSpecs": {
+    "affordable": {
+      "min": 0,
+      "max": 9.384,
+      "scale": 0.3519
+    },
+    "bonus": {
+      "min": 0,
+      "max": 9.592,
+      "scale": 0.3597
+    },
+    "colorPoints": {
+      "min": 0,
+      "max": 6.416,
+      "scale": 0.2406
+    },
+    "crowns": {
+      "min": 0,
+      "max": 10.972,
+      "scale": 0.41145
+    },
+    "demand": {
+      "min": 0,
+      "max": 5,
+      "scale": 0.08639999999999999
+    },
+    "excess": {
+      "min": 0,
+      "max": 5.224,
+      "scale": 0.1959
+    },
+    "gem": {
+      "min": 0,
+      "max": 5,
+      "scale": 0.1152
+    },
+    "gold": {
+      "min": 0,
+      "max": 5.344,
+      "scale": 0.2004
+    },
+    "oneTake": {
+      "min": 0,
+      "max": 5.144,
+      "scale": 0.1929
+    },
+    "opponent": {
+      "min": 0,
+      "max": 5,
+      "scale": 0.1422
+    },
+    "pearl": {
+      "min": 0,
+      "max": 5.172,
+      "scale": 0.19394999999999998
+    },
+    "pearlDemand": {
+      "min": 0,
+      "max": 5,
+      "scale": 0.087
+    },
+    "points": {
+      "min": 0,
+      "max": 11.196,
+      "scale": 0.41985
+    },
+    "privilege": {
+      "min": 0,
+      "max": 5,
+      "scale": 0.15885
+    },
+    "progress": {
+      "min": 0,
+      "max": 5,
+      "scale": 0.10484999999999998
+    },
+    "reserve": {
+      "min": 0,
+      "max": 5,
+      "scale": 0.051300000000000005
+    },
+    "royalNear": {
+      "min": 0,
+      "max": 5.816,
+      "scale": 0.2181
+    },
+    "terminal": {
+      "min": 10000,
+      "max": 10000000,
+      "scale": 150000
+    },
+    "threat": {
+      "min": 0,
+      "max": 21.332,
+      "scale": 0.79995
+    }
+  }
+}

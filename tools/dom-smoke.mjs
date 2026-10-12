@@ -37,7 +37,7 @@ async function check(label, fn) {
 
 // The single-file Vite bundle has no imports. jsdom does not execute modules;
 // change only its script type in memory, leaving the built file untouched.
-function openPage(html, name, url, storage = {}) {
+function openPage(html, name, url, storage = {}, fetchImpl = null) {
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('error', (...args) => errors.push(`${name} console.error: ${inspect(args)}`));
   virtualConsole.on('jsdomError', error => errors.push(`${name} jsdomError: ${error.stack || error.message}`));
@@ -52,7 +52,7 @@ function openPage(html, name, url, storage = {}) {
         seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
         return seed / 2 ** 32;
       };
-      window.fetch = async () => ({ ok: false, status: 503, json: async () => ({ status: 'offline' }) });
+      window.fetch = fetchImpl || (async () => ({ ok: false, status: 503, json: async () => ({ status: 'offline' }) }));
       window.crypto.randomUUID ??= randomUUID;
       window.structuredClone ??= structuredClone;
       window.matchMedia = query => ({ matches: false, media: query, onchange: null,
@@ -116,6 +116,74 @@ try {
   const html = original.replace(/(<script\b[^>]*\btype=)"module"/g, '$1"text/javascript"');
   const beta = openPage(html, 'beta', 'https://danieldailey.com/splendor_duel/index.html?debug');
   await until(() => beta.document.querySelector('.game-container'), 'beta page initialization');
+  await check('online Nudge with fake GameSync', async () => {
+    const fixture = plainState(beta);
+    fixture.turnDisplayState = { activePlayerId: 'player2', opponentPlayerId: 'player1' };
+    fixture.gameState.currentPlayer = 1;
+    fixture.gameState.syncAssignments = { player1Id: 'fake-opponent', player2Id: 'fake-nudger' };
+    fixture.gameState.players.player1.name = 'Alex';
+    const session = { session_id: 'nudge-smoke', version: 1, state_blob: JSON.stringify(fixture), meta: {} };
+    let nudges = 0;
+    let reply = { status: 429, headers: { get: key => key.toLowerCase() === 'retry-after' ? '14400' : null },
+      json: async () => ({ error: 'rate_limited' }) };
+    const fakeFetch = async (url, options) => {
+      const action = new URL(url).searchParams.get('action');
+      if (action === 'session_nudge') {
+        nudges++;
+        assert.equal(options.method, 'POST');
+        assert.equal(options.headers['Content-Type'], 'application/json');
+        assert.deepEqual(JSON.parse(options.body), { actor_id: 'fake-nudger', game_type: 'splendor_duel', session_id: 'nudge-smoke' });
+        return reply;
+      }
+      return { ok: true, status: 200, json: async () => action === 'status' ? { status: 'operational' } : session };
+    };
+    const online = openPage(html, 'nudge-online', 'https://danieldailey.com/splendor_duel/index.html?debug&session=nudge-smoke',
+      { splendor_duel_client_id: 'fake-nudger' }, fakeFetch);
+    const button = () => online.document.querySelector('#sync-nudge-btn');
+    await until(() => button() && !button().hidden, 'waiting Nudge appears');
+    requireThat(online.document.querySelector('#sync-turn-indicator').textContent === 'Waiting on opponent', 'not waiting');
+    requireThat(button().getAttribute('aria-label') === 'Nudge opponent', 'accessible label missing');
+    requireThat(nudges === 0, 'Nudge auto-fired');
+    button().click();
+    requireThat(button().disabled, 'in-flight button enabled');
+    await until(() => button().textContent === 'Nudge in 4h 00m', '429 countdown appears');
+    requireThat(button().disabled && nudges === 1, 'rate limit did not disable button');
+    button().click();
+    requireThat(nudges === 1, 'disabled Nudge sent twice');
+    const deadline = Number(online.localStorage.getItem('splendor_duel_nudge_deadline:nudge-smoke'));
+    requireThat(deadline > online.Date.now(), 'deadline not persisted');
+    await until(() => button().textContent === 'Nudge in 3h 59m', 'countdown ticks each second', 2500);
+    const restored = openPage(html, 'nudge-restored', 'https://danieldailey.com/splendor_duel/index.html?debug&session=nudge-smoke',
+      copyStorage(online), fakeFetch);
+    await until(() => restored.document.querySelector('#sync-nudge-btn')?.textContent.startsWith('Nudge in '), 'persisted cooldown restored');
+    requireThat(restored.document.querySelector('#sync-nudge-btn').disabled && nudges === 1, 'restored cooldown enabled or auto-fired');
+    restored.close();
+    const realNow = online.Date.now;
+    online.Date.now = () => deadline + 1;
+    online.updateSyncIndicator();
+    requireThat(!button().disabled && button().textContent === 'Nudge', 'expired cooldown did not enable');
+    reply = { status: 200, json: async () => ({ ok: true, next_allowed_in: 0, reachable: false, remaining_today: 0 }) };
+    button().click();
+    await until(() => online.document.querySelector('#sync-nudge-message').textContent === 'Nudged Alex They have not turned on notifications.', 'success message');
+    requireThat(!button().disabled, 'client imposed a quota limit');
+    online.Date.now = realNow;
+    const state = stateOf(online);
+    state.currentPlayer = 2;
+    online.updateSyncIndicator();
+    requireThat(button().hidden, 'Nudge visible on own turn');
+    state.currentPlayer = 1;
+    state.gameOver.winnerId = 'player1';
+    online.updateSyncIndicator();
+    requireThat(button().hidden, 'Nudge visible after game over');
+    state.gameOver.winnerId = null;
+    state.syncAssignments.player1Id = null;
+    online.updateSyncIndicator();
+    requireThat(button().hidden, 'Nudge visible without seated opponent');
+    online.selectLocalMode();
+    online.updateSyncIndicator();
+    requireThat(button().hidden, 'Nudge visible locally');
+    return 'waiting button, explicit POST, 429 four-hour countdown/storage, expiry, 200 unreachable message; hidden on own turn/game over/empty seat/local';
+  });
   await check('(a) mode dialog', async () => {
     await until(() => beta.document.querySelector('#mode-selection-modal')?.style.display === 'flex', 'mode dialog shown');
     requireThat([...beta.document.querySelectorAll('#mode-selection-modal button')].some(b => b.textContent === 'Play vs Computer'), 'Play vs Computer missing');
@@ -306,6 +374,8 @@ try {
   });
   await check('(c) startVsComputer(3)/human view', async () => {
     beta.startVsComputer(3);
+    beta.updateSyncIndicator();
+    requireThat(beta.document.querySelector('#sync-nudge-btn')?.hidden, 'Nudge visible vs Computer');
     requireThat(beta.document.querySelector('.game-container'), 'game not rendered');
     humanView(beta);
     if (stateOf(beta).currentPlayer === 2) await aiFinished(beta);
