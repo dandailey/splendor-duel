@@ -47,7 +47,7 @@ async function check(label, fn) {
 
 // The app bundle has no imports. jsdom does not execute modules;
 // change only its script type in memory and serve JS/CSS from the local build.
-function openPage(html, name, url, storage = {}, fetchImpl = null) {
+function openPage(html, name, url, storage = {}, fetchImpl = null, configureWindow = null) {
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('error', (...args) => errors.push(`${name} console.error: ${inspect(args)}`));
   virtualConsole.on('jsdomError', error => errors.push(`${name} jsdomError: ${error.stack || error.message}`));
@@ -68,6 +68,7 @@ function openPage(html, name, url, storage = {}, fetchImpl = null) {
       window.matchMedia = query => ({ matches: false, media: query, onchange: null,
         addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return true; } });
       window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+      configureWindow?.(window);
       window.scrollTo = (...args) => calls.push({ name, type: 'scrollTo', args });
       window.alert = (...args) => calls.push({ name, type: 'alert', args });
       window.confirm = (...args) => { calls.push({ name, type: 'confirm', args }); return true; };
@@ -138,6 +139,45 @@ try {
     requireThat(modal.style.display === 'none', 'settings did not close');
     beta.showModeSelection();
     return 'converted settings buttons open and close the modal';
+  });
+  await check('Web Push Settings dark gate', async () => {
+    for (const status of [404, 200]) {
+      let vapidCalls = 0;
+      const page = openPage(html, `webpush-${status}`, 'https://danieldailey.com/splendor_duel/index.html?debug', {},
+        async url => {
+          if (new URL(url).searchParams.get('action') === 'vapid_public_key') {
+            vapidCalls++;
+            return { status, json: async () => status === 200
+              ? { public_key: Buffer.from([4, ...new Array(64).fill(1)]).toString('base64url') }
+              : { error: 'push_disabled' } };
+          }
+          return { ok: false, status: 503, json: async () => ({ status: 'offline' }) };
+        }, window => {
+          window.matchMedia = query => ({ matches: query === '(display-mode: standalone)',
+            addEventListener() {}, removeEventListener() {} });
+          window.PushManager = function () {};
+          window.Notification = { permission: 'default', requestPermission: async () => 'granted' };
+          Object.defineProperty(window.navigator, 'serviceWorker', { value: {
+            register: async () => ({}), ready: Promise.resolve({ pushManager: { getSubscription: async () => null } })
+          } });
+        });
+      await until(() => page.document.querySelector('.game-container'), 'web push initialization');
+      requireThat(vapidCalls === 0, 'VAPID check must be lazy');
+      page.document.querySelector('[data-action="closeModeSelection"]').click();
+      page.document.querySelector('#settings-btn').click();
+      await until(() => vapidCalls === 1, 'lazy VAPID request');
+      if (status === 200) {
+        await until(() => page.document.querySelector('#native-push-status')?.textContent === 'Push is off', 'web push controls');
+        requireThat(page.document.querySelector('#settings-content').textContent.includes("Your device's push address is stored on the game server."), 'privacy copy missing');
+        requireThat(!page.document.querySelector('#settings-content [data-action="enableTurnNotifications"]'), 'old controls still shown');
+      } else {
+        await delay(50);
+        requireThat(!page.document.querySelector('#native-push-button'), '404 must keep web push dark');
+        requireThat(page.document.querySelector('#settings-content [data-action="enableTurnNotifications"]'), 'browser fallback missing');
+      }
+      page.document.querySelector('[data-action="closeSettings"]').click();
+    }
+    return 'installed PWA checks lazily; VAPID 200 reveals controls and 404 preserves fallback';
   });
   await check('online Nudge with fake GameSync', async () => {
     const fixture = plainState(beta);

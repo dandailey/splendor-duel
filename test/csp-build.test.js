@@ -42,7 +42,7 @@ test('production build uses local external scripts and relative existing assets 
       await assert.rejects(access(join(dist, excluded)), { code: 'ENOENT' });
     }
     const sw = await readFile(join(dist, 'sw.js'), 'utf8');
-    assert.match(sw, /splendor-duel-shell-v3/);
+    assert.match(sw, /splendor-duel-shell-v4/);
     for (const asset of ['assets/app.js', 'assets/app.css']) {
       assert.ok(sw.includes(`'${asset}'`), `precache includes ${asset}`);
       await access(join(dist, asset));

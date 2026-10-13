@@ -11,6 +11,7 @@ import { aiTurnRecap, engineStateFromGame } from './ai/bridge.js';
 import cardsCsv from "./splendor_cards.csv?raw";
 import { buildPushMeta, buildLobbyMeta } from "./push-meta.js";
 import { nativePushAvailable, nativePush } from "./native-push.js";
+import { webPushSupported, webPushConfigured, webPush } from "./web-push.js";
 import { formatCountdown, loadNudgeDeadline, saveNudgeDeadline, postNudge } from './nudge.js';
 import {
   awardPrivilege,
@@ -6955,7 +6956,11 @@ const nativePushErrorLabel = (error) => {
   return 'Push is unavailable';
 };
 
-const setupNativePushSettings = () => {
+const pushSettingsProvider = (send) => Object.fromEntries(
+  ['status', 'enable', 'disable', 'mute'].map(type => [type, fields => send(type, fields)])
+);
+
+const setupNativePushSettings = (provider = pushSettingsProvider(nativePush), web = false) => {
   const modal = document.getElementById('settings-modal');
   const statusLine = document.getElementById('native-push-status');
   const button = document.getElementById('native-push-button');
@@ -6968,14 +6973,15 @@ const setupNativePushSettings = () => {
     && document.getElementById('native-push-status') === statusLine;
 
   const refreshStatus = async () => {
-    const status = await nativePush('status', { actor_id: clientId });
+    const status = await provider.status({ actor_id: clientId });
     if (!isOpen()) return;
     if (status.ok === false) {
       statusLine.textContent = nativePushErrorLabel(status.error);
       button.hidden = true;
       return;
     }
-    const on = status.registered && ['authorized', 'provisional', 'ephemeral'].includes(status.permission);
+    const on = status.registered && (web ? status.permission === 'granted'
+      : ['authorized', 'provisional', 'ephemeral'].includes(status.permission));
     const denied = status.permission === 'denied';
     statusLine.textContent = on ? 'Push is on'
       : denied ? 'Blocked in iOS Settings > Notifications' : 'Push is off';
@@ -6988,7 +6994,7 @@ const setupNativePushSettings = () => {
     button.disabled = true;
     if (mute) mute.disabled = true;
     errorLine.textContent = '';
-    const result = await nativePush(type, { actor_id: clientId, ...fields });
+    const result = await provider[type]({ actor_id: clientId, ...fields });
     if (!isOpen()) return;
     if (result.ok !== true) errorLine.textContent = nativePushErrorLabel(result.error);
     if (type === 'mute') {
@@ -7074,7 +7080,7 @@ const showSettings = () => {
     `;
   } else {
   html += `
-    <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">
+    <div id="browser-push-settings" style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">
       <p><strong>Turn notifications:</strong> ${getTurnNotificationStatusLabel()}</p>
       <button class="action-button" data-action="enableTurnNotifications" style="margin-top: 5px; font-size: 12px;">
         Enable Turn Notifications
@@ -7100,6 +7106,25 @@ const showSettings = () => {
   modal.style.display = 'flex';
   modal.style.pointerEvents = 'auto';
   if (useNativePush) setupNativePushSettings();
+  else if (webPushSupported()) {
+    const fallback = document.getElementById('browser-push-settings');
+    void webPushConfigured(gameSyncBaseUrl).then(result => {
+      if (!result.ok || !fallback?.isConnected || modal.style.display === 'none'
+        || document.getElementById('browser-push-settings') !== fallback || nativePushAvailable()) return;
+      const canMute = syncContext.enabled && typeof syncContext.sessionId === 'string'
+        && /^[A-Za-z0-9_-]{1,64}$/.test(syncContext.sessionId);
+      fallback.innerHTML = `
+        <p><strong>Turn notifications:</strong></p>
+        <p>Get a ping when it's your turn, even with the app closed.</p>
+        <p>Alerts are generic (no names). Your device's push address is stored on the game server.</p>
+        <p id="native-push-status" role="status">Checking...</p>
+        <button id="native-push-button" class="action-button" hidden style="margin-top: 5px; font-size: 12px;">Turn on push</button>
+        ${canMute ? '<p><label><input id="native-push-mute" type="checkbox"> Mute this game</label></p>' : ''}
+        <p id="native-push-error" role="status"></p>`;
+      setupNativePushSettings(pushSettingsProvider((type, fields) =>
+        webPush(type, { ...fields, baseUrl: gameSyncBaseUrl })), true);
+    });
+  }
   const gameContainer = document.querySelector('.game-container');
   if (gameContainer) {
     gameContainer.classList.add('dialog-blocking');

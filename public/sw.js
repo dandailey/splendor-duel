@@ -1,7 +1,7 @@
-// Splendor Duel service worker: offline shell only.
+// Splendor Duel service worker: offline shell and generic turn notifications.
 // Network-first for pages, scripts and styles; cached copies are the offline fallback.
 // Never touches GameSync (different path and origin-scope) or cross-origin requests.
-const CACHE = 'splendor-duel-shell-v3';
+const CACHE = 'splendor-duel-shell-v4';
 const SHELL = [
   './',
   'manifest.webmanifest',
@@ -51,4 +51,25 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
+});
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(self.registration.showNotification('Splendor Duel', {
+    body: 'Your turn', tag: 'splendor-duel-turn', renotify: true,
+    icon: 'icons/icon-192.png', data: { url: './' }
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const scope = new URL(self.registration.scope);
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = windows.find(client => {
+      const url = new URL(client.url);
+      return url.origin === scope.origin && url.pathname.startsWith(scope.pathname);
+    });
+    if (existing) return existing.focus();
+    return self.clients.openWindow('./');
+  })());
 });
