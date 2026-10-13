@@ -5136,3 +5136,9 @@ html.tab-inactive .reserved-section.reserved-affordable {
   color: white;
   pointer-events: none;
 }
+
+/* Undo must remain reachable during the human action/Computer recap overlays. */
+#hint-controls #undo-btn {
+  position: relative;
+  z-index: 20001;
+}

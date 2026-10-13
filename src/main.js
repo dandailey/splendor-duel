@@ -3,8 +3,9 @@ import { isStraightLine } from './engine/tokens.js';
 import "./style.css";
 import './pwa/register-sw.js';
 import qrcode from 'qrcode-generator';
-import { aiModeAvailable, vsComputer, enableComputer, disableComputer, applyGameInto,
+import { aiModeAvailable, vsComputer, enableComputer, disableComputer, cancelComputerWork, applyGameInto,
   rememberedLevel, rememberLevel, levelPickerHtml, scheduleComputerTurn, hintBannerHtml } from './ai/vs-computer.js';
+import { createUndoSlot, capture, clear as clearUndo, take, undoAvailable } from './ai/vs-computer-undo.js';
 import { computeHint } from './ai/hint.js';
 import { VS_COMPUTER_SAVE_KEY, serializeSnapshot, parseSnapshot } from './ai/vs-computer-save.js';
 import { aiTurnRecap, engineStateFromGame } from './ai/bridge.js';
@@ -200,6 +201,7 @@ const summarizeSpend = (spend = {}) => Object.keys(spend)
   .map(color => ({ color, count: spend[color] }));
 
 const logTurnEvent = (type, payload = {}) => {
+  promoteComputerUndo();
   const pending = ensurePendingTurn();
   pending.events.push({
     id: `${pending.id}-event-${pending.events.length + 1}`,
@@ -748,6 +750,7 @@ const awardScroll = (playerId) => {
 };
 
 const initializeGame = () => {
+  clearComputerUndo();
   resetGamePieces(gameState);
   resetTransientActionState();
 
@@ -2441,6 +2444,7 @@ const closeRepeatTurnModal = async () => {
   const rollbackState = syncContext.enabled ? encodeSyncState() : null;
   finalizePendingTurn("extra_turn");
   gameState.turnState = nextTurnState;
+  stageComputerUndo();
   saveComputerCheckpoint();
   turnCheckpointCommitted = false;
   turnCheckpointPromise = null;
@@ -3225,6 +3229,7 @@ const generateResourceSummary = () => {
 const finalizeGameOverState = (winnerId, conditions, stats) => {
   if (isGameOver()) return;
 
+  clearComputerUndo();
   gameState.gameOver = {
     winnerId,
     conditions: [...conditions],
@@ -4575,6 +4580,7 @@ const resetTransientActionState = () => {
 
 // Toggle token selection
 const toggleTokenSelection = (row, col) => {
+  promoteComputerUndo();
   if (!ensureLocalTurn("Token selection is only available on your turn.")) return;
   const token = gameState.board[row][col];
   
@@ -6638,8 +6644,53 @@ const hintAvailable = () => vsComputer.enabled && !syncContext.enabled
   && !isGameOver() && !gameState.turnState?.actionCompleted && !gameState.turnState?.mandatoryDone
   && !gameState.pending && !bonusTokenMode && !stealTokenMode && !pendingWildCard
   && !royalCardSelectionMode && !tokenDiscardMode && !selectedTokens.length && !scrollSelectedToken;
-const hintButtonHtml = () => hintAvailable()
-  ? `<button class="action-button" id="hint-btn" type="button" aria-label="Show a hint" data-action="showHint"${hintController ? ' disabled' : ''}>${hintController ? 'Thinking…' : 'Hint'}</button>` : '';
+const computerUndo = createUndoSlot();
+let nextComputerUndo = null;
+let undoLastSeenTurnId = null;
+let nextUndoLastSeenTurnId = null;
+const clearComputerUndo = () => {
+  clearUndo(computerUndo);
+  nextComputerUndo = null;
+  undoLastSeenTurnId = null;
+  nextUndoLastSeenTurnId = null;
+};
+const stageComputerUndo = (initial = false) => {
+  if (!vsComputer.enabled || syncContext.enabled || isGameOver()
+      || gameState.currentPlayer !== 1 || ensureCurrentTurnState().actionCompleted
+      || gameState.turnState.boardRefilled || gameState.turnState.mandatoryDone
+      || turnHistoryState.pendingTurn?.events.length) return;
+  // Keep the preceding turn undoable after the reply, until the human acts.
+  nextComputerUndo = buildSyncState();
+  nextUndoLastSeenTurnId = syncContext.lastSeenTurnId;
+  if (initial) promoteComputerUndo();
+};
+const promoteComputerUndo = () => {
+  if (!vsComputer.enabled || syncContext.enabled || gameState.currentPlayer !== 1 || !nextComputerUndo) return;
+  capture(computerUndo, nextComputerUndo);
+  undoLastSeenTurnId = nextUndoLastSeenTurnId;
+  nextComputerUndo = null;
+};
+const undoComputerTurn = () => {
+  if (!undoAvailable(computerUndo, vsComputer, gameState, syncContext.enabled)) return;
+  cancelComputerWork();
+  resetTransientActionState();
+  const restored = take(computerUndo);
+  nextComputerUndo = null;
+  syncContext.lastSeenTurnId = undoLastSeenTurnId;
+  applySyncedState(JSON.stringify(restored));
+  // The restored history may include an older reply; keep its recap dismissed.
+  syncContext.lastSeenTurnId = getLatestOpponentTurnId();
+  stageComputerUndo();
+  clearTurnSummarySection();
+  saveComputerCheckpoint();
+  renderGame();
+};
+const hintButtonHtml = () => {
+  if (!vsComputer.enabled || syncContext.enabled) return '';
+  const hint = hintAvailable()
+    ? `<button class="action-button" id="hint-btn" type="button" aria-label="Show a hint" data-action="showHint"${hintController ? ' disabled' : ''}>${hintController ? 'Thinking…' : 'Hint'}</button>` : '';
+  return `${hint}<button class="action-button" id="undo-btn" type="button" data-action="undoComputerTurn"${undoAvailable(computerUndo, vsComputer, gameState, syncContext.enabled) ? '' : ' disabled'}>Undo</button>`;
+};
 const clearHint = () => {
   hintController?.abort();
   hintController = null;
@@ -6705,7 +6756,10 @@ const runComputerTurn = () => scheduleComputerTurn({
     applyGameInto(gameState, game.gameState);
     applyGameInto(previousCrownCounts, game.previousCrownCounts);
     resetTransientActionState();
-    if (!isGameOver()) resetCurrentTurnState();
+    if (!isGameOver()) {
+      resetCurrentTurnState();
+      stageComputerUndo();
+    } else clearComputerUndo();
     saveComputerCheckpoint();
   },
   refresh: () => {
@@ -6737,6 +6791,7 @@ window.startVsComputer = level => {
   url.searchParams.delete('role');
   window.history.replaceState({}, '', url);
   initializeGame();
+  stageComputerUndo(true);
   renderGame();
   saveComputerCheckpoint();
   if (gameState.currentPlayer === 2) runComputerTurn();
@@ -6772,6 +6827,7 @@ if (aiModeAvailable()) {
       if (type === 'click' && event.target.closest?.('#mode-selection-modal button')?.getAttribute('data-action')?.match(/^(hostOnlineGame|showJoinDialog)$/)) {
         clearComputerSave();
         disableComputer();
+        clearComputerUndo();
       }
     }, { capture: true, passive: false });
   }
@@ -6806,6 +6862,7 @@ window.selectLocalMode = () => {
   clearComputerSave();
   if (vsComputer.enabled) {
     disableComputer();
+    clearComputerUndo();
     initializeGame();
     renderGame();
   }
@@ -6818,6 +6875,7 @@ window.selectLocalMode = () => {
 window.hostOnlineGame = async () => {
   clearComputerSave();
   disableComputer();
+  clearComputerUndo();
   try {
     requestTurnNotificationPermission();
 
@@ -6890,6 +6948,7 @@ window.hostOnlineGame = async () => {
 window.showJoinDialog = () => {
   clearComputerSave();
   disableComputer();
+  clearComputerUndo();
   window.closeModeSelection();
   const modal = document.getElementById('join-game-modal');
   if (modal) {
@@ -7364,6 +7423,7 @@ const init = async () => {
     enableComputer(computerSave.level);
     syncContext.lastSeenTurnId = computerSave.lastSeenTurnId;
     if (applySyncedState(JSON.stringify(computerSave.state))) {
+      stageComputerUndo();
       updateSyncUI();
       const notice = document.createElement('div');
       notice.className = 'computer-resume-notice';
@@ -7376,6 +7436,7 @@ const init = async () => {
       return;
     }
     disableComputer();
+    clearComputerUndo();
     clearComputerSave();
   }
 
@@ -7501,6 +7562,7 @@ installActions(document, {
   enterScrollSelectionMode,
   toggleTokenDiscard,
   showHint,
+  undoComputerTurn,
   newComputerGameFromSettings: level => { closeSettings(); window.startVsComputer(Number(level)); },
   chooseModeFromSettings: () => { closeSettings(); window.showModeSelection(); },
   copySessionId,

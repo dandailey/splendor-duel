@@ -52,14 +52,17 @@ export function levelPickerHtml(selected = 1) {
 }
 export const createVsComputerState = () => ({ enabled: false, level: 1, aiPlayerId: 'player2', busy: false, summary: [], error: null, generation: 0 });
 export const vsComputer = createVsComputerState();
-export function disableComputer(state = vsComputer) {
+export function cancelComputerWork(state = vsComputer) {
   state.controller?.abort();
   state.controller = null;
   state.generation++;
-  state.enabled = false;
   state.busy = false;
   state.summary = [];
   state.error = null;
+}
+export function disableComputer(state = vsComputer) {
+  cancelComputerWork(state);
+  state.enabled = false;
 }
 export function enableComputer(level, state = vsComputer) {
   if (!validLevel(level)) throw new RangeError('level must be 1 through 10');

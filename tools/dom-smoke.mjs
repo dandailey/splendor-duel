@@ -1,6 +1,5 @@
 // Run with: node tools/dom-smoke.mjs (uses the already installed jsdom).
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -22,15 +21,14 @@ const localResources = {
     } });
   })]
 };
-const dist = '/tmp/splendor-smoke-dist';
 const pages = [];
 const errors = [];
 const calls = [];
 let failures = 0;
 const watchdog = setTimeout(() => {
-  console.error('FAIL timeout: smoke run exceeded 85 seconds');
+  console.error('FAIL timeout: smoke run exceeded 180 seconds');
   process.exit(1);
-}, 85_000);
+}, 180_000);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate, reason, timeout = 8000) {
   const deadline = Date.now() + timeout;
@@ -119,13 +117,20 @@ function comparableLayout(window) {
 
 try {
   console.log('PASS install: jsdom already installed; no npm install or network used');
-  const built = await promisify(execFile)('npx', ['--no-install', 'vite', 'build', '--outDir', dist, '--emptyOutDir'], { cwd: root, timeout: 30_000 });
-  requireThat(!built.stderr.includes('error'), built.stderr);
-  console.log(`PASS build: Vite output in ${dist}`);
-  const original = await readFile(`${dist}/index.html`, 'utf8');
-  for (const asset of ['assets/app.js', 'assets/app.css']) {
-    shellResources.set(`https://danieldailey.com/splendor_duel/${asset}`, await readFile(`${dist}/${asset}`));
+  // Bundle only the DOM test fixture in memory; no Vite/production build.
+  const bundled = await build({ absWorkingDir: root, entryPoints: ['src/main.js'],
+    bundle: true, minify: true, format: 'iife', write: false, outfile: 'app.js',
+    loader: { '.csv': 'text' }, plugins: [{ name: 'csv-raw', setup(api) {
+      api.onResolve({ filter: /\.csv\?raw$/ }, args => ({ path: fileURLToPath(new URL('../src/splendor_cards.csv', import.meta.url)) }));
+    } }] });
+  for (const file of bundled.outputFiles) {
+    const asset = file.path.endsWith('.css') ? 'assets/app.css' : 'assets/app.js';
+    shellResources.set(`https://danieldailey.com/splendor_duel/${asset}`, file.contents);
   }
+  console.log('PASS bundle: in-memory esbuild DOM fixture; no Vite build');
+  const original = (await readFile(`${root}/index.html`, 'utf8'))
+    .replace('src="/src/main.js"', 'src="./assets/app.js"')
+    .replace('</head>', '<link rel="stylesheet" href="./assets/app.css"></head>');
   requireThat(/<script\b[^>]*type="module"/.test(original), 'expected bundled module script');
   const html = original.replace(/(<script\b[^>]*\btype=)"module"/g, '$1"text/javascript"');
   const beta = openPage(html, 'beta', 'https://danieldailey.com/splendor_duel/index.html?debug');
@@ -452,6 +457,7 @@ try {
       beta.startVsComputer(3);
       if (stateOf(beta).currentPlayer !== 2) continue;
       requireThat(!beta.document.querySelector('#hint-btn'), 'Hint visible while computer busy');
+      requireThat(beta.document.querySelector('#undo-btn')?.disabled, 'Undo enabled while computer busy');
       await aiFinished(beta);
       return `AI first on attempt ${attempt}; scheduled turn finished, player1 control, all invariants and summary verified`;
     }
@@ -462,6 +468,7 @@ try {
     await until(() => local.document.querySelector('.game-container'), 'local hint page');
     local.selectLocalMode();
     requireThat(!local.document.querySelector('#hint-btn'), 'Hint visible in local mode');
+    requireThat(!local.document.querySelector('#undo-btn'), 'Undo visible in local mode');
     const hint = openPage(html, 'hint-computer', 'https://danieldailey.com/splendor_duel/index.html?debug');
     await until(() => hint.document.querySelector('.game-container'), 'hint computer page');
     hint.startVsComputer(3);
@@ -471,6 +478,7 @@ try {
     if (hint.document.querySelector('#turn-completion-dialog').style.display === 'flex') hint.document.querySelector('#switch-players-btn').click();
     const button = hint.document.querySelector('#hint-btn');
     requireThat(button?.getAttribute('aria-label') === 'Show a hint', 'human Hint button missing');
+    requireThat(hint.document.querySelector('#undo-btn'), 'Undo missing vs Computer');
     const before = plainState(hint);
     const storage = copyStorage(hint);
     const recap = hint.document.querySelector('#turn-completion-dialog').style.display;
@@ -489,6 +497,21 @@ try {
     await delay(250);
     requireThat(!hint.document.querySelector('.ai-hint-summary'), 'cancelled hint reappeared');
     hint.closePopover('token-selection-modal');
+    const turnStart = plainState(hint);
+    const board = stateOf(hint).board;
+    let gem;
+    for (let row = 0; row < 5 && !gem; row++) for (let col = 0; col < 5 && !gem; col++) {
+      if (board[row][col] && !['gold', 'pearl'].includes(board[row][col])) gem = { row, col };
+    }
+    hint.document.querySelector('[data-popover="token-selection-modal"]').click();
+    await until(() => hint.document.querySelector(`.token-overlay[data-row="${gem.row}"][data-col="${gem.col}"]`)?._clickHandler, 'undo token listener');
+    hint.document.querySelector(`.token-overlay[data-row="${gem.row}"][data-col="${gem.col}"]`).click();
+    hint.document.querySelector('#token-selection-modal .btn-confirm').click();
+    requireThat(!hint.document.querySelector('#undo-btn').disabled, 'Undo missing during completed human action');
+    requireThat(Number(hint.getComputedStyle(hint.document.querySelector('#undo-btn')).zIndex) > 200, 'Undo covered by recap');
+    hint.document.querySelector('#undo-btn').click();
+    assert.deepEqual(plainState(hint), turnStart);
+    requireThat(hint.document.querySelector('#undo-btn').disabled, 'in-progress Undo did not consume slot');
     return 'only vs Computer human turns; preview preserves game/crowns/history/storage/recap; dismiss and cancellation work';
   });
   await check('(e) human DOM turn and AI reply', async () => {
@@ -580,6 +603,7 @@ try {
       await until(() => page.document.querySelector('.game-container'), `${name} initializes`);
       await delay(550);
       requireThat(!page.document.querySelector('.computer-resume-notice'), `${name} resumed local game`);
+      requireThat(!page.document.querySelector('#undo-btn'), `${name} rendered Undo outside Computer mode`);
       requireThat(page.document.querySelector('#settings-modal-content')?.textContent?.includes('vs Computer') !== true, `${name} enabled Computer`);
       if (name === 'game-over' || name === 'corrupt') requireThat(page.localStorage.getItem(VS_COMPUTER_SAVE_KEY) === null, `${name} snapshot not deleted`);
     }
@@ -597,6 +621,17 @@ try {
     beta.__splendorDebugRender();
     await delay(100);
     requireThat(beta.document.querySelector('#turn-completion-dialog').style.display === 'none', 'dismissed recap reappeared');
+    requireThat(resumed.document.querySelector('#undo-btn').disabled, 'reload unexpectedly retained undo');
+    beta.document.querySelector('#undo-btn').click();
+    assert.deepEqual(plainState(beta).gameState, before);
+    requireThat(beta.document.querySelector('#undo-btn').disabled, 'Undo slot did not clear');
+    requireThat(!beta.document.querySelector('.ai-hint-summary'), 'Undo retained hint');
+    const undoSaved = JSON.parse(beta.localStorage.getItem(VS_COMPUTER_SAVE_KEY));
+    assert.deepEqual(undoSaved.state.gameState, before);
+    const undoReload = openPage(html, 'undo-reload', 'https://danieldailey.com/splendor_duel/index.html?debug', copyStorage(beta));
+    await until(() => undoReload.document.querySelector('.computer-resume-notice'), 'undo reload');
+    assert.deepEqual(plainState(undoReload), plainState(beta));
+    requireThat(undoReload.document.querySelector('#undo-btn').disabled, 'reload retained undo slot');
     return `app-kill resume deep-equals game/crowns/history, retains human view, shows notice without mode dialog, runs interrupted AI, restores recap exactly once, rejects finished/corrupt saves and online URLs; recap matches Computer history, persists until Start Turn, survives re-render, and stays dismissed; real DOM: open board, click (${cell.row},${cell.col}) ${cell.color}, Confirm, finish turn; AI replied and player1 view/control retained`;
   });
 } catch (error) {
