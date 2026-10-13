@@ -1,19 +1,19 @@
 import { defineConfig } from 'vite';
-import { viteSingleFile } from 'vite-plugin-singlefile';
 
 export default defineConfig({
   base: './',
-  plugins: [viteSingleFile()],
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
     cssCodeSplit: false,
     rollupOptions: {
       output: {
+        entryFileNames: 'assets/app.js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/app[extname]',
         inlineDynamicImports: true,
         manualChunks: undefined,
       },
     },
   },
 });
-

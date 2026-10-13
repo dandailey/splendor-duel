@@ -1,13 +1,15 @@
 // Splendor Duel service worker: offline shell only.
-// Network-first for the page so game updates always arrive; cached copy is the offline fallback.
+// Network-first for pages, scripts and styles; cached copies are the offline fallback.
 // Never touches GameSync (different path and origin-scope) or cross-origin requests.
-const CACHE = 'splendor-duel-shell-v2';
+const CACHE = 'splendor-duel-shell-v3';
 const SHELL = [
   './',
   'manifest.webmanifest',
   'icons/icon-192.png',
   'icons/icon-512.png',
-  'icons/apple-touch-icon.png'
+  'icons/apple-touch-icon.png',
+  'assets/app.js',
+  'assets/app.css'
 ];
 
 self.addEventListener('install', (event) => {
@@ -29,20 +31,21 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (!url.pathname.startsWith(new URL('./', self.location.href).pathname)) return;
 
-  if (req.mode === 'navigate') {
+  if (req.mode === 'navigate' || req.destination === 'script' || req.destination === 'style') {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
+      fetch(req, { cache: 'no-cache' })
+        .then(async (res) => {
           // Only the real game page refreshes the offline shell (not index.beta.html or other pages).
           const scopePath = new URL('./', self.location.href).pathname;
           const isShellPage = url.pathname === scopePath || url.pathname === scopePath + 'index.html';
-          if (res.ok && isShellPage) {
-            const copy = res.clone();
-            caches.open(CACHE).then((cache) => cache.put('./', copy));
+          if (res.ok) {
+            await caches.open(CACHE)
+              .then((cache) => cache.put(isShellPage ? './' : req, res.clone()))
+              .catch(() => {});
           }
           return res;
         })
-        .catch(() => caches.match('./'))
+        .catch(() => caches.match(req.mode === 'navigate' ? './' : req))
     );
     return;
   }

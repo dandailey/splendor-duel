@@ -11,7 +11,17 @@ import jsdom from 'jsdom';
 import { checkInvariants } from '../src/engine/invariants.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const { JSDOM, VirtualConsole } = jsdom;
+const { JSDOM, VirtualConsole, requestInterceptor } = jsdom;
+const shellResources = new Map();
+const localResources = {
+  interceptors: [requestInterceptor(request => {
+    const body = shellResources.get(request.url);
+    if (!body) throw new Error(`Unexpected resource request: ${request.url}`);
+    return new Response(body, { headers: {
+      'Content-Type': request.url.endsWith('.css') ? 'text/css' : 'text/javascript'
+    } });
+  })]
+};
 const dist = '/tmp/splendor-smoke-dist';
 const pages = [];
 const errors = [];
@@ -35,8 +45,8 @@ async function check(label, fn) {
   catch (error) { failures++; console.log(`FAIL ${label}: ${error.message}`); }
 }
 
-// The single-file Vite bundle has no imports. jsdom does not execute modules;
-// change only its script type in memory, leaving the built file untouched.
+// The app bundle has no imports. jsdom does not execute modules;
+// change only its script type in memory and serve JS/CSS from the local build.
 function openPage(html, name, url, storage = {}, fetchImpl = null) {
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('error', (...args) => errors.push(`${name} console.error: ${inspect(args)}`));
@@ -44,7 +54,7 @@ function openPage(html, name, url, storage = {}, fetchImpl = null) {
   let seed = 0x715c;
   const dom = new JSDOM(html, {
     url, runScripts: 'dangerously', pretendToBeVisual: true,
-    resources: 'usable', virtualConsole,
+    resources: localResources, virtualConsole,
     beforeParse(window) {
       for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, value);
       // Identical startup randomness lets us compare the two page layouts.
@@ -99,7 +109,7 @@ async function aiFinished(window) {
 }
 function comparableLayout(window) {
   const app = window.document.querySelector('#app').cloneNode(true);
-  app.querySelector('[onclick="window.showComputerLevelPicker()"]')?.remove();
+  app.querySelector('[data-action="showComputerLevelPicker"]')?.remove();
   app.querySelector('#ai-level-picker')?.remove();
   app.querySelector('#mode-selection-modal')?.removeAttribute('style');
   app.querySelector('.game-container')?.classList.remove('dialog-blocking');
@@ -112,10 +122,23 @@ try {
   requireThat(!built.stderr.includes('error'), built.stderr);
   console.log(`PASS build: Vite output in ${dist}`);
   const original = await readFile(`${dist}/index.html`, 'utf8');
+  for (const asset of ['assets/app.js', 'assets/app.css']) {
+    shellResources.set(`https://danieldailey.com/splendor_duel/${asset}`, await readFile(`${dist}/${asset}`));
+  }
   requireThat(/<script\b[^>]*type="module"/.test(original), 'expected bundled module script');
   const html = original.replace(/(<script\b[^>]*\btype=)"module"/g, '$1"text/javascript"');
   const beta = openPage(html, 'beta', 'https://danieldailey.com/splendor_duel/index.html?debug');
   await until(() => beta.document.querySelector('.game-container'), 'beta page initialization');
+  await check('delegated settings open/close', async () => {
+    beta.document.querySelector('[data-action="closeModeSelection"]').click();
+    beta.document.querySelector('#settings-btn').click();
+    const modal = beta.document.querySelector('#settings-modal');
+    requireThat(modal.style.display === 'flex', 'settings did not open');
+    modal.querySelector('[data-action="closeSettings"]').click();
+    requireThat(modal.style.display === 'none', 'settings did not close');
+    beta.showModeSelection();
+    return 'converted settings buttons open and close the modal';
+  });
   await check('online Nudge with fake GameSync', async () => {
     const fixture = plainState(beta);
     fixture.turnDisplayState = { activePlayerId: 'player2', opponentPlayerId: 'player1' };

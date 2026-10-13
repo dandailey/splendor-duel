@@ -1,5 +1,8 @@
+import { installActions, escapeActionAttribute } from './ui/actions.js';
 import { isStraightLine } from './engine/tokens.js';
 import "./style.css";
+import './pwa/register-sw.js';
+import qrcode from 'qrcode-generator';
 import { aiModeAvailable, vsComputer, enableComputer, disableComputer, applyGameInto,
   rememberedLevel, rememberLevel, levelPickerHtml, scheduleComputerTurn, hintBannerHtml } from './ai/vs-computer.js';
 import { computeHint } from './ai/hint.js';
@@ -1063,8 +1066,12 @@ const buildShareUrl = (sessionId) => {
 
 const buildShareQrUrl = (shareUrl) => {
   if (!shareUrl) return "";
-  const encoded = encodeURIComponent(shareUrl);
-  return `https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=${encoded}`;
+  const qr = qrcode(0, 'M');
+  qr.addData(shareUrl);
+  qr.make();
+  const svg = qr.createSvgTag({ cellSize: 1, margin: 4, scalable: true })
+    .replace('<svg ', '<svg width="170" height="170" shape-rendering="crispEdges" ');
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 };
 
 const isLocalPlayersTurn = () => {
@@ -2915,7 +2922,7 @@ const renderPlayerHand = (playerId) => {
       ${renderMiscCardsFanInline(playerId)}
       <div class="hand-resources-group">
         ${generateResourceIcons(playerId, 20)}
-        <button onclick="enterReserveMode()" class="hand-reserve-btn-compact" ${reserveDisabled ? 'disabled' : ''} title="${reserveTooltip}">Reserve</button>
+        <button data-action="enterReserveMode" class="hand-reserve-btn-compact" ${reserveDisabled ? 'disabled' : ''} title="${reserveTooltip}">Reserve</button>
       </div>
     </div>
   `;
@@ -3141,7 +3148,7 @@ const renderHandDetails = (playerId) => {
       <h3>${title}</h3>
       <div class="hand-details-header-actions">
         <div class="hand-detail-header-resources" aria-label="Pearl and gold tokens">${headerResources}</div>
-        <button class="hand-details-close" onclick="closePopover('hand-details-modal')" aria-label="Close">×</button>
+        <button class="hand-details-close" data-action="closePopover" data-arg="hand-details-modal" aria-label="Close">×</button>
       </div>
     </div>
     <div class="hand-details-scroll-area">
@@ -3289,7 +3296,7 @@ const getVictoryModalMarkup = () => {
         </div>
         <div class="victory-actions">
           <button class="action-button victory-primary-button"
-            onclick="window.confirmNewGameFromGameOver()">${restartLabel}</button>
+            data-action="confirmNewGameFromGameOver">${restartLabel}</button>
           <button class="action-button cancel-button victory-secondary-button" id="close-victory-btn">Close</button>
         </div>
       </div>
@@ -3373,10 +3380,10 @@ const generateGameLayout = () => {
           <button class="action-button sync-nudge-btn" id="sync-nudge-btn" type="button" aria-label="Nudge opponent" hidden>Nudge</button>
         </div>
         <span id="hint-controls">${hintButtonHtml()}</span>
-        <button class="settings-btn" id="settings-btn" title="Game settings" onclick="window.showSettings()">⚙</button>
+        <button class="settings-btn" id="settings-btn" title="Game settings" data-action="showSettings">⚙</button>
       </div>
       <div id="hint-banner">${hintBannerHtml(hintLines)}</div>
-      ${vsComputer.enabled && (vsComputer.busy || vsComputer.error) ? `<div class="ai-thinking" role="status" aria-live="polite"><div>${vsComputer.error || 'Computer is thinking...'}${vsComputer.error ? '<button class="action-button" data-ai-retry onclick="window.retryComputerTurn()">Retry computer turn</button>' : ''}</div></div>` : ''}
+      ${vsComputer.enabled && (vsComputer.busy || vsComputer.error) ? `<div class="ai-thinking" role="status" aria-live="polite"><div>${vsComputer.error || 'Computer is thinking...'}${vsComputer.error ? '<button class="action-button" data-ai-retry data-action="retryComputerTurn">Retry computer turn</button>' : ''}</div></div>` : ''}
       <div class="sync-turn-warning" id="turn-guard-message" aria-live="polite"></div>
       <div id="sync-nudge-message" class="sync-nudge-message" role="status" aria-live="polite" hidden></div>
       <!-- Top Bar: Token Board (left) and Opponent Stats (right) -->
@@ -3429,9 +3436,9 @@ const generateGameLayout = () => {
                   </div>
                 </div>
                 <div class="token-modal-actions">
-                  <button class="btn-cancel" onclick="closePopover('token-selection-modal')">Cancel</button>
-                  <button class="btn-confirm" onclick="confirmTokenSelection()">Confirm</button>
-                  <button id="refill-board-btn" class="btn-refill" onclick="refillBoard()" title="Refill board from bag">Refill</button>
+                  <button class="btn-cancel" data-action="closePopover" data-arg="token-selection-modal">Cancel</button>
+                  <button class="btn-confirm" data-action="confirmTokenSelection">Confirm</button>
+                  <button id="refill-board-btn" class="btn-refill" data-action="refillBoard" title="Refill board from bag">Refill</button>
                 </div>
               </div>
             </div>
@@ -3479,7 +3486,7 @@ const generateGameLayout = () => {
                 <p>Your completed turn is locked in. Start a fresh turn with the revealed board.</p>
               </div>
               <button class="action-button switch-players-button" id="repeat-turn-btn"
-                onclick="closeRepeatTurnModal()">Start Extra Turn</button>
+                data-action="closeRepeatTurnModal">Start Extra Turn</button>
             </div>
           </div>
 
@@ -3493,8 +3500,8 @@ const generateGameLayout = () => {
                 <!-- Tokens will be populated dynamically -->
               </div>
               <div class="token-discard-actions">
-                <button class="btn-minimize" id="minimize-discard-btn" onclick="minimizeDiscardModal()">Minimize</button>
-                <button class="btn-confirm" id="confirm-discard-btn" onclick="confirmTokenDiscard()">Confirm</button>
+                <button class="btn-minimize" id="minimize-discard-btn" data-action="minimizeDiscardModal">Minimize</button>
+                <button class="btn-confirm" id="confirm-discard-btn" data-action="confirmTokenDiscard">Confirm</button>
               </div>
             </div>
           </div>
@@ -3549,7 +3556,7 @@ const generateGameLayout = () => {
                     <div class="reserve-royal-group reserve-mode-active">
                       <div class="reserve-mode-panel">
                         <div class="reserve-mode-title">Select a Card</div>
-                        <button onclick="exitReserveMode()" class="action-button cancel-button reserve-mode-cancel">Cancel</button>
+                        <button data-action="exitReserveMode" class="action-button cancel-button reserve-mode-cancel">Cancel</button>
                       </div>
                     </div>
                   `;
@@ -3629,12 +3636,12 @@ const generateGameLayout = () => {
             <p>How would you like to play?</p>
           </div>
           <div class="mode-selection-buttons">
-            <button class="action-button" onclick="window.selectLocalMode()">Local Hotseat</button>
-            <button class="action-button" onclick="window.hostOnlineGame()">Online – Host New Game</button>
-            <button class="action-button" onclick="window.showJoinDialog()">Online – Join Game</button>${aiModeAvailable() ? '<button class="action-button" onclick="window.showComputerLevelPicker()">Play vs Computer</button><div id="ai-level-picker" hidden></div>' : ''}
+            <button class="action-button" data-action="selectLocalMode">Local Hotseat</button>
+            <button class="action-button" data-action="hostOnlineGame">Online – Host New Game</button>
+            <button class="action-button" data-action="showJoinDialog">Online – Join Game</button>${aiModeAvailable() ? '<button class="action-button" data-action="showComputerLevelPicker">Play vs Computer</button><div id="ai-level-picker" hidden></div>' : ''}
           </div>
           <div style="margin-top: 15px; text-align: center;">
-            <button class="btn-cancel" onclick="window.closeModeSelection()" style="font-size: 12px; padding: 6px 12px;">Close</button>
+            <button class="btn-cancel" data-action="closeModeSelection" style="font-size: 12px; padding: 6px 12px;">Close</button>
           </div>
         </div>
       </div>
@@ -3649,10 +3656,10 @@ const generateGameLayout = () => {
             <p style="font-size: 12px; color: #666; margin-top: 5px;">Warning: This will replace your current game state.</p>
           </div>
           <div class="mode-selection-buttons">
-            <button class="action-button" onclick="window.confirmJoinGame()">Join</button>
+            <button class="action-button" data-action="confirmJoinGame">Join</button>
           </div>
           <div style="margin-top: 10px; text-align: center;">
-            <button class="btn-cancel" onclick="window.closeJoinDialog()" style="font-size: 12px; padding: 6px 12px;">Cancel</button>
+            <button class="btn-cancel" data-action="closeJoinDialog" style="font-size: 12px; padding: 6px 12px;">Cancel</button>
           </div>
         </div>
       </div>
@@ -3667,7 +3674,7 @@ const generateGameLayout = () => {
             </div>
           </div>
           <div class="settings-modal-footer">
-            <button class="btn-cancel" onclick="window.closeSettings()" style="font-size: 12px; padding: 6px 12px;">Close</button>
+            <button class="btn-cancel" data-action="closeSettings" style="font-size: 12px; padding: 6px 12px;">Close</button>
           </div>
         </div>
       </div>
@@ -3684,10 +3691,10 @@ const generateGameLayout = () => {
             <div class="qr-wrapper" id="session-qr-wrapper">
               <img id="session-qr-image" src="${shareQrSrc || ''}" alt="Session QR code" style="${shareQrSrc ? '' : 'display:none;'}" />
             </div>
-            <button class="action-button" onclick="window.copySessionInfo()" style="margin-top: 10px; width: 100%;">Copy Link</button>
+            <button class="action-button" data-action="copySessionInfo" style="margin-top: 10px; width: 100%;">Copy Link</button>
           </div>
           <div style="margin-top: 15px; text-align: center;">
-            <button class="btn-cancel" onclick="window.closeSessionInfo()" style="font-size: 12px; padding: 6px 12px;">Start Game</button>
+            <button class="btn-cancel" data-action="closeSessionInfo" style="font-size: 12px; padding: 6px 12px;">Start Game</button>
           </div>
         </div>
       </div>
@@ -3831,7 +3838,7 @@ const populateReservedModal = () => {
     modalBody.innerHTML = `
       <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:20px;">
         <div style="color:#ddd; font-style:italic;">You have no reserved cards.</div>
-        <button onclick="closePopover('reserved-modal')" class="action-button cancel-button">Close</button>
+        <button data-action="closePopover" data-arg="reserved-modal" class="action-button cancel-button">Close</button>
       </div>
     `;
     return;
@@ -3859,7 +3866,7 @@ const populateReservedModal = () => {
         ${cardsHtml}
       </div>
       <div style="display:flex; justify-content:center; margin-top:auto;">
-        <button onclick="closePopover('reserved-modal')" class="action-button cancel-button">Close</button>
+        <button data-action="closePopover" data-arg="reserved-modal" class="action-button cancel-button">Close</button>
       </div>
     </div>
   `;
@@ -3908,7 +3915,7 @@ const showWildPlacementModal = () => {
         <div style="color:#ff8a80; font-weight:600; text-align:center;">
           You must have a non-wild color card to place this on to.
         </div>
-        <button onclick="closePopover('wild-placement-modal')" class="action-button cancel-button">Close</button>
+        <button data-action="closePopover" data-arg="wild-placement-modal" class="action-button cancel-button">Close</button>
       </div>
     `;
     openPopover('wild-placement-modal');
@@ -3961,8 +3968,8 @@ const showWildPlacementModal = () => {
         ${colorOptions}
       </div>
       <div style="display:flex; justify-content:center; gap:12px; margin-top:auto;">
-        <button onclick="closePopover('wild-placement-modal')" class="action-button cancel-button">Cancel</button>
-        <button onclick="confirmWildCardPlacement()" class="action-button buy-button"
+        <button data-action="closePopover" data-arg="wild-placement-modal" class="action-button cancel-button">Cancel</button>
+        <button data-action="confirmWildCardPlacement" class="action-button buy-button"
           id="confirm-wild-placement-btn" disabled>Place Wild Card</button>
       </div>
     </div>
@@ -4096,7 +4103,7 @@ const populateRoyalCardsModal = (selectionMode = false) => {
       
       return `
         <div class="royal-card-view royal-card-clickable" data-card-id="${card.id}">
-          <div class="card royal-card-large ${selectedClass}" onclick="selectRoyalCard('${card.id}')" style="cursor: pointer;">
+          <div class="card royal-card-large ${selectedClass}" data-action="selectRoyalCard" data-arg="${escapeActionAttribute(card.id)}" style="cursor: pointer;">
             <!-- Gold arch background in upper right -->
             <div class="royal-card-arch"></div>
             
@@ -4130,7 +4137,7 @@ const populateRoyalCardsModal = (selectionMode = false) => {
           <div style="text-align: center; font-size: 0.95em; color: #f0f0f0; font-weight: 500; line-height: 1.4; margin-bottom: 20px;">
             You've earned a royal card! Select one to add to your hand.
           </div>
-          <button onclick="confirmRoyalCardSelection()" class="action-button cancel-button" ${confirmDisabled} style="${confirmDisabled ? 'opacity: 0.5; cursor: not-allowed;' : ''}">Confirm</button>
+          <button data-action="confirmRoyalCardSelection" class="action-button cancel-button" ${confirmDisabled} style="${confirmDisabled ? 'opacity: 0.5; cursor: not-allowed;' : ''}">Confirm</button>
         </div>
       </div>
     `;
@@ -4148,7 +4155,7 @@ const populateRoyalCardsModal = (selectionMode = false) => {
           </div>
         </div>
         <div style="display: flex; gap: 10px; justify-content: center; padding-top: 6px; margin-top: auto;">
-          <button onclick="closePopover('royal-modal')" class="action-button cancel-button">Close</button>
+          <button data-action="closePopover" data-arg="royal-modal" class="action-button cancel-button">Close</button>
         </div>
       </div>
     `;
@@ -4201,7 +4208,7 @@ const populateRoyalCardsModal = (selectionMode = false) => {
         ${cardsHTML}
       </div>
       <div style="display: flex; align-items: flex-end; justify-content: center; flex-shrink: 0; width: 100px;">
-        <button onclick="closePopover('royal-modal')" class="action-button cancel-button">Close</button>
+        <button data-action="closePopover" data-arg="royal-modal" class="action-button cancel-button">Close</button>
       </div>
     </div>
   `;
@@ -4235,7 +4242,7 @@ const populateCardDetailPopover = (card) => {
       </div>
       <div style="display:flex; gap:10px; justify-content:center; padding-top:6px; margin-top:auto;">
         <button id="buy-button" class="action-button buy-button" ${canBuy ? '' : 'disabled'}>Buy</button>
-        <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Close</button>
+        <button data-action="closePopover" data-arg="card-detail-popover" class="action-button cancel-button">Close</button>
       </div>
     </div>
   `;
@@ -4465,8 +4472,8 @@ const confirmReserveFromPyramid = (card) => {
           </div>
         </div>
         <div class="reserve-confirm-actions">
-          <button onclick="reserveSelectedCard()" class="action-button reserve-button">Confirm Reserve</button>
-          <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Cancel</button>
+          <button data-action="reserveSelectedCard" class="action-button reserve-button">Confirm Reserve</button>
+          <button data-action="closePopover" data-arg="card-detail-popover" class="action-button cancel-button">Cancel</button>
         </div>
       </div>
     `;
@@ -4486,8 +4493,8 @@ const confirmReserveFromDeck = (level) => {
           </div>
         </div>
         <div class="reserve-confirm-actions">
-          <button onclick="reserveFromDeck(${level})" class="action-button reserve-button">Confirm Reserve</button>
-          <button onclick="closePopover('card-detail-popover')" class="action-button cancel-button">Cancel</button>
+          <button data-action="reserveFromDeck" data-arg="${escapeActionAttribute(level)}" class="action-button reserve-button">Confirm Reserve</button>
+          <button data-action="closePopover" data-arg="card-detail-popover" class="action-button cancel-button">Cancel</button>
         </div>
       </div>
     `;
@@ -4517,7 +4524,7 @@ const showReservedCardReveal = (card) => {
           </div>
         </div>
         <div class="reserve-confirm-actions">
-          <button onclick="handleReserveRevealContinue()" class="action-button reserve-button">Continue</button>
+          <button data-action="handleReserveRevealContinue" class="action-button reserve-button">Continue</button>
         </div>
       </div>
     `;
@@ -5134,10 +5141,10 @@ const renderScrollUsageSection = () => {
     html += '<div class="scroll-selection-label">Choose your token</div>';
     
     if (scrollSelectedToken) {
-      html += '<button class="btn-confirm-scroll" id="confirm-scroll-btn" onclick="confirmScrollSelection()">Confirm</button>';
+      html += '<button class="btn-confirm-scroll" id="confirm-scroll-btn" data-action="confirmScrollSelection">Confirm</button>';
     }
     
-    html += '<button class="btn-cancel-scroll" onclick="cancelScrollSelection()">Cancel</button>';
+    html += '<button class="btn-cancel-scroll" data-action="cancelScrollSelection">Cancel</button>';
     html += '</div>';
     section.innerHTML = html;
   } else {
@@ -5149,7 +5156,7 @@ const renderScrollUsageSection = () => {
     
     for (let i = 0; i < scrollCount; i++) {
       const disabled = hasRefilledBoardThisTurn() ? 'disabled' : '';
-      html += `<div class="scroll-icon ${disabled}" data-scroll-index="${i}" onclick="${disabled ? '' : 'enterScrollSelectionMode()'}">`;
+      html += `<div class="scroll-icon ${disabled}" data-scroll-index="${i}" ${disabled ? '' : 'data-action="enterScrollSelectionMode"'}>`;
       html += `<span class="privilege-scroll-emoji" style="font-size: ${iconSize}px;">🗞️</span>`;
       html += '</div>';
     }
@@ -5349,28 +5356,7 @@ const confirmRoyalCardSelection = () => {
 };
 
 // Expose to global scope for onclick handlers
-window.reserveSelectedCard = reserveSelectedCard;
-window.reserveFromDeck = reserveFromDeck;
-window.enterReserveMode = enterReserveMode;
-window.exitReserveMode = exitReserveMode;
-window.confirmReserveFromPyramid = confirmReserveFromPyramid;
-window.confirmReserveFromDeck = confirmReserveFromDeck;
-window.showReservedCardReveal = showReservedCardReveal;
-window.handleReserveRevealContinue = handleReserveRevealContinue;
-window.confirmTokenSelection = confirmTokenSelection;
-window.refillBoard = refillBoard;
-window.enterScrollSelectionMode = enterScrollSelectionMode;
-window.cancelScrollSelection = cancelScrollSelection;
 window.closePopover = closePopover;
-window.confirmScrollSelection = confirmScrollSelection;
-window.confirmWildCardPlacement = confirmWildCardPlacement;
-window.selectRoyalCard = selectRoyalCard;
-window.confirmRoyalCardSelection = confirmRoyalCardSelection;
-window.confirmStealToken = confirmStealToken;
-window.closeRepeatTurnModal = closeRepeatTurnModal;
-window.startNewGameFromGameOver = startNewGameFromGameOver;
-window.confirmNewGameFromGameOver = confirmNewGameFromGameOver;
-window.reopenVictoryModal = reopenVictoryModal;
 // Deprecated: payment now renders inline in the same modal
 
 // Close any open popover on escape key
@@ -5833,7 +5819,7 @@ const showTokenDiscardModal = () => {
       }
       
       gridHTML += `
-        <div class="token-discard-item" data-token-id="${tokenId}" data-token-color="${color}" onclick="toggleTokenDiscard('${tokenId}', '${color}')">
+        <div class="token-discard-item" data-token-id="${tokenId}" data-token-color="${color}" data-action="toggleTokenDiscard" data-arg-1="${escapeActionAttribute(tokenId)}" data-arg-2="${escapeActionAttribute(color)}">
           ${iconSvg}
         </div>
       `;
@@ -5945,10 +5931,6 @@ const confirmTokenDiscard = () => {
 };
 
 // Expose token discard functions to global scope (after they're defined)
-window.confirmTokenDiscard = confirmTokenDiscard;
-window.toggleTokenDiscard = toggleTokenDiscard;
-window.minimizeDiscardModal = minimizeDiscardModal;
-window.maximizeDiscardModal = maximizeDiscardModal;
 
 const switchPlayers = () => {
   if (vsComputer.enabled && !syncContext.enabled) {
@@ -6648,7 +6630,7 @@ const maybeAdjustPollingCadence = () => {
   startPolling(desiredMs);
 };
 
-// UI handler functions (exposed to window for onclick handlers)
+// UI handler functions used by the delegated action registry
 // Local Computer mode: all UI glue stays separate from online handoff/sync.
 const hintAvailable = () => vsComputer.enabled && !syncContext.enabled
   && !vsComputer.busy && gameState.currentPlayer !== Number(vsComputer.aiPlayerId.slice(-1))
@@ -6656,7 +6638,7 @@ const hintAvailable = () => vsComputer.enabled && !syncContext.enabled
   && !gameState.pending && !bonusTokenMode && !stealTokenMode && !pendingWildCard
   && !royalCardSelectionMode && !tokenDiscardMode && !selectedTokens.length && !scrollSelectedToken;
 const hintButtonHtml = () => hintAvailable()
-  ? `<button class="action-button" id="hint-btn" type="button" aria-label="Show a hint" onclick="window.showHint()"${hintController ? ' disabled' : ''}>${hintController ? 'Thinking…' : 'Hint'}</button>` : '';
+  ? `<button class="action-button" id="hint-btn" type="button" aria-label="Show a hint" data-action="showHint"${hintController ? ' disabled' : ''}>${hintController ? 'Thinking…' : 'Hint'}</button>` : '';
 const clearHint = () => {
   hintController?.abort();
   hintController = null;
@@ -6675,7 +6657,7 @@ const updateHintUI = () => {
   if (controls) controls.innerHTML = hintButtonHtml();
   if (banner) banner.innerHTML = hintBannerHtml(hintLines);
 };
-window.showHint = async () => {
+const showHint = async () => {
   if (!hintAvailable() || hintController) return;
   const snapshot = structuredClone({ gameState, previousCrownCounts });
   const controller = new AbortController();
@@ -6703,7 +6685,7 @@ window.showHint = async () => {
     }
   }
 };
-window.dismissHint = () => { clearHint(); updateHintUI(); };
+const dismissHint = () => { clearHint(); updateHintUI(); };
 window.addEventListener('pagehide', clearHint);
 
 const runComputerTurn = () => scheduleComputerTurn({
@@ -6732,7 +6714,7 @@ const runComputerTurn = () => scheduleComputerTurn({
   }
 });
 
-window.showComputerLevelPicker = () => {
+const showComputerLevelPicker = () => {
   if (!aiModeAvailable()) return;
   const picker = document.getElementById('ai-level-picker');
   if (picker) {
@@ -6758,8 +6740,8 @@ window.startVsComputer = level => {
   saveComputerCheckpoint();
   if (gameState.currentPlayer === 2) runComputerTurn();
 };
-window.retryComputerTurn = runComputerTurn;
-window.dismissComputerSummary = () => {
+
+const dismissComputerSummary = () => {
   vsComputer.summary = [];
   document.querySelector('.ai-summary:not(.ai-hint-summary)')?.remove();
 };
@@ -6786,7 +6768,7 @@ if (aiModeAvailable()) {
         return;
       }
       // Existing online handlers remain unchanged; relinquish local AI mode before entering them.
-      if (type === 'click' && event.target.closest?.('#mode-selection-modal button')?.getAttribute('onclick')?.match(/hostOnlineGame|showJoinDialog/)) {
+      if (type === 'click' && event.target.closest?.('#mode-selection-modal button')?.getAttribute('data-action')?.match(/^(hostOnlineGame|showJoinDialog)$/)) {
         clearComputerSave();
         disableComputer();
       }
@@ -7028,13 +7010,13 @@ const setupNativePushSettings = () => {
   void refreshStatus();
 };
 
-window.showSettings = () => {
+const showSettings = () => {
   const modal = document.getElementById('settings-modal');
   const content = document.getElementById('settings-content');
   
   if (!modal || !content) return;
   if (vsComputer.enabled) {
-    content.innerHTML = `<p>You are playing vs Computer (level ${vsComputer.level})</p><button class="action-button" onclick="window.closeSettings(); window.startVsComputer(${vsComputer.level})">New game vs Computer</button><button class="action-button" onclick="window.closeSettings(); window.showModeSelection()">Choose game mode</button>`;
+    content.innerHTML = `<p>You are playing vs Computer (level ${vsComputer.level})</p><button class="action-button" data-action="newComputerGameFromSettings" data-arg="${escapeActionAttribute(vsComputer.level)}">New game vs Computer</button><button class="action-button" data-action="chooseModeFromSettings">Choose game mode</button>`;
     modal.style.display = 'flex';
     modal.style.pointerEvents = 'auto';
     document.querySelector('.game-container')?.classList.add('dialog-blocking');
@@ -7053,14 +7035,14 @@ window.showSettings = () => {
         <p><strong>Session ID:</strong></p>
         <div class="settings-copy-row">
           <div class="session-id-display">${trimmedSessionId}</div>
-          <button class="inline-copy-btn" onclick="window.copySessionId()" title="Copy Session ID" aria-label="Copy Session ID">📋</button>
+          <button class="inline-copy-btn" data-action="copySessionId" title="Copy Session ID" aria-label="Copy Session ID">📋</button>
         </div>
       </div>
       <div class="settings-copy-group">
         <p><strong>Share Link:</strong></p>
         <div class="settings-copy-row">
           <div class="session-link-display" id="share-link-display">${shareUrl}</div>
-          <button class="inline-copy-btn" onclick="window.copyShareLink()" title="Copy Share Link" aria-label="Copy Share Link">📋</button>
+          <button class="inline-copy-btn" data-action="copyShareLink" title="Copy Share Link" aria-label="Copy Share Link">📋</button>
         </div>
         <div class="qr-wrapper">
           <img id="settings-qr-image" src="${shareQrSrc || ''}" alt="Share QR code" style="${shareQrSrc ? '' : 'display:none;'}" />
@@ -7070,7 +7052,7 @@ window.showSettings = () => {
   } else {
     html += '<p>You are playing in local mode.</p>';
     if (syncContext.serviceAvailable || aiModeAvailable()) {
-      html += `<button class="action-button" onclick="window.closeSettings(); window.showModeSelection();" style="margin-top: 10px;">${aiModeAvailable() ? 'Choose game mode' : 'Switch to Online Mode'}</button>`;
+      html += `<button class="action-button" data-action="chooseModeFromSettings" style="margin-top: 10px;">${aiModeAvailable() ? 'Choose game mode' : 'Switch to Online Mode'}</button>`;
     } else {
       html += '<p style="font-size: 12px; color: #666;">Online sync is not available.</p>';
     }
@@ -7094,7 +7076,7 @@ window.showSettings = () => {
   html += `
     <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">
       <p><strong>Turn notifications:</strong> ${getTurnNotificationStatusLabel()}</p>
-      <button class="action-button" onclick="window.enableTurnNotifications()" style="margin-top: 5px; font-size: 12px;">
+      <button class="action-button" data-action="enableTurnNotifications" style="margin-top: 5px; font-size: 12px;">
         Enable Turn Notifications
       </button>
     </div>
@@ -7106,7 +7088,7 @@ window.showSettings = () => {
     html += `
       <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">
         <p><strong>Post-game:</strong></p>
-        <button class="action-button" onclick="window.closeSettings(); window.confirmNewGameFromGameOver();"
+        <button class="action-button" data-action="newGameFromSettings"
           style="margin-top: 5px; font-size: 12px;">
           ${restartLabel}
         </button>
@@ -7138,7 +7120,7 @@ window.showSettings = () => {
   }
 };
 
-window.closeSettings = () => {
+const closeSettings = () => {
   const modal = document.getElementById('settings-modal');
   if (modal) {
     modal.style.display = 'none';
@@ -7150,7 +7132,7 @@ window.closeSettings = () => {
   }
 };
 
-window.copySessionId = () => {
+const copySessionId = () => {
   if (syncContext.sessionId) {
     const trimmed = trimSessionId(syncContext.sessionId);
     navigator.clipboard.writeText(trimmed || syncContext.sessionId).then(() => {
@@ -7161,7 +7143,7 @@ window.copySessionId = () => {
   }
 };
 
-window.copyShareLink = () => {
+const copyShareLink = () => {
   const shareLinkDisplay = document.getElementById('share-link-display');
   if (shareLinkDisplay && shareLinkDisplay.textContent) {
     navigator.clipboard.writeText(shareLinkDisplay.textContent).then(() => {
@@ -7172,7 +7154,7 @@ window.copyShareLink = () => {
   }
 };
 
-window.enableTurnNotifications = async () => {
+const enableTurnNotifications = async () => {
   const result = await requestTurnNotificationPermission();
   if (result === "granted") {
     alert("Turn notifications enabled.");
@@ -7183,10 +7165,10 @@ window.enableTurnNotifications = async () => {
   } else {
     alert("Notification permission is still not enabled.");
   }
-  window.closeSettings();
+  closeSettings();
 };
 
-window.copySessionInfo = () => {
+const copySessionInfo = () => {
   const sessionLinkDisplay = document.getElementById('session-link-display');
   if (sessionLinkDisplay && sessionLinkDisplay.textContent) {
     navigator.clipboard.writeText(sessionLinkDisplay.textContent).then(() => {
@@ -7197,7 +7179,7 @@ window.copySessionInfo = () => {
   }
 };
 
-window.closeSessionInfo = () => {
+const closeSessionInfo = () => {
   const modal = document.getElementById('session-info-modal');
   if (modal) {
     modal.style.display = 'none';
@@ -7458,6 +7440,51 @@ const init = async () => {
 document.addEventListener("visibilitychange", () => {
   refreshPowerModeClass();
   maybeAdjustPollingCadence();
+});
+
+// Resolve names to functions; markup contains only action names and string arguments.
+installActions(document, {
+  enterReserveMode,
+  closePopover,
+  confirmNewGameFromGameOver: window.confirmNewGameFromGameOver,
+  showSettings,
+  retryComputerTurn: runComputerTurn,
+  confirmTokenSelection,
+  refillBoard,
+  closeRepeatTurnModal,
+  minimizeDiscardModal,
+  confirmTokenDiscard,
+  exitReserveMode,
+  selectLocalMode: window.selectLocalMode,
+  hostOnlineGame: window.hostOnlineGame,
+  showJoinDialog: window.showJoinDialog,
+  showComputerLevelPicker,
+  closeModeSelection: window.closeModeSelection,
+  confirmJoinGame: window.confirmJoinGame,
+  closeJoinDialog: window.closeJoinDialog,
+  closeSettings,
+  copySessionInfo,
+  closeSessionInfo,
+  confirmWildCardPlacement,
+  selectRoyalCard,
+  confirmRoyalCardSelection,
+  reserveSelectedCard,
+  reserveFromDeck: level => reserveFromDeck(Number(level)),
+  handleReserveRevealContinue,
+  confirmScrollSelection,
+  cancelScrollSelection,
+  enterScrollSelectionMode,
+  toggleTokenDiscard,
+  showHint,
+  newComputerGameFromSettings: level => { closeSettings(); window.startVsComputer(Number(level)); },
+  chooseModeFromSettings: () => { closeSettings(); window.showModeSelection(); },
+  copySessionId,
+  copyShareLink,
+  enableTurnNotifications,
+  newGameFromSettings: () => { closeSettings(); confirmNewGameFromGameOver(); },
+  dismissComputerSummary,
+  dismissHint,
+  startComputerFromPicker: () => window.startVsComputer(Number(document.getElementById('ai-level').value)),
 });
 
 init();
