@@ -575,7 +575,7 @@ const isDevMode = () => {
 // Initialize GameSync client with dev/prod detection
 const gameSyncBaseUrl = isDevMode() 
   ? 'http://gamesync:8888/index.php'
-  : 'https://danieldailey.com/gamesync/index.php';
+  : new URL('/gamesync/index.php', window.location.origin).href;
 
 const gameSyncClient = new GameSyncClient(
   gameSyncBaseUrl,
