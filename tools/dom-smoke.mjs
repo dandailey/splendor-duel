@@ -388,10 +388,45 @@ try {
     for (let attempt = 1; attempt <= 20; attempt++) {
       beta.startVsComputer(3);
       if (stateOf(beta).currentPlayer !== 2) continue;
+      requireThat(!beta.document.querySelector('#hint-btn'), 'Hint visible while computer busy');
       await aiFinished(beta);
       return `AI first on attempt ${attempt}; scheduled turn finished, player1 control, all invariants and summary verified`;
     }
     throw new Error('AI never started first in 20 attempts');
+  });
+  await check('Hint preview is isolated and dismissible', async () => {
+    const local = openPage(html, 'hint-local', 'https://danieldailey.com/splendor_duel/index.html?debug');
+    await until(() => local.document.querySelector('.game-container'), 'local hint page');
+    local.selectLocalMode();
+    requireThat(!local.document.querySelector('#hint-btn'), 'Hint visible in local mode');
+    const hint = openPage(html, 'hint-computer', 'https://danieldailey.com/splendor_duel/index.html?debug');
+    await until(() => hint.document.querySelector('.game-container'), 'hint computer page');
+    hint.startVsComputer(3);
+    if (stateOf(hint).currentPlayer === 2) await aiFinished(hint);
+    await until(() => stateOf(hint).currentPlayer === 1 && !hint.document.querySelector('.ai-thinking'), 'hint human turn');
+    await until(() => hint.document.querySelector('#switch-players-btn')?._handlerAttached, 'hint recap acknowledgement');
+    if (hint.document.querySelector('#turn-completion-dialog').style.display === 'flex') hint.document.querySelector('#switch-players-btn').click();
+    const button = hint.document.querySelector('#hint-btn');
+    requireThat(button?.getAttribute('aria-label') === 'Show a hint', 'human Hint button missing');
+    const before = plainState(hint);
+    const storage = copyStorage(hint);
+    const recap = hint.document.querySelector('#turn-completion-dialog').style.display;
+    button.click();
+    await until(() => hint.document.querySelector('.ai-hint-summary'), 'hint banner', 15000);
+    requireThat(hint.document.querySelector('.ai-hint-summary').textContent.includes('Just a suggestion.'), 'hint note missing');
+    assert.deepEqual(plainState(hint), before);
+    assert.deepEqual(copyStorage(hint), storage);
+    requireThat(hint.document.querySelector('#turn-completion-dialog').style.display === recap, 'hint changed recap overlay');
+    hint.document.querySelector('[aria-label="Dismiss hint"]').click();
+    requireThat(!hint.document.querySelector('.ai-hint-summary'), 'hint dismissal failed');
+    assert.deepEqual(plainState(hint), before);
+    // Start again and immediately act: the old async search cannot publish.
+    hint.document.querySelector('#hint-btn').click();
+    hint.document.querySelector('[data-popover="token-selection-modal"]').click();
+    await delay(250);
+    requireThat(!hint.document.querySelector('.ai-hint-summary'), 'cancelled hint reappeared');
+    hint.closePopover('token-selection-modal');
+    return 'only vs Computer human turns; preview preserves game/crowns/history/storage/recap; dismiss and cancellation work';
   });
   await check('(e) human DOM turn and AI reply', async () => {
     await until(() => stateOf(beta).currentPlayer === 1 && !beta.document.querySelector('.ai-thinking'), 'human turn');
@@ -413,6 +448,7 @@ try {
     const overlay = beta.document.querySelector(`.token-overlay[data-row="${cell.row}"][data-col="${cell.col}"]`);
     requireThat(overlay?._clickHandler, 'token overlay listener missing');
     overlay.click();
+    requireThat(!beta.document.querySelector('#hint-btn'), 'Hint visible with selected tokens');
     beta.document.querySelector('#token-selection-modal .btn-confirm').click();
     requireThat(stateOf(beta).players.player1.tokens[cell.color] === before.players.player1.tokens[cell.color] + 1, 'confirm did not transfer selected gem to player1');
     humanView(beta);

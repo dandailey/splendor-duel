@@ -43,6 +43,10 @@ export function summaryBannerHtml(summary) {
   if (!summary.length) return '';
   return `<div class="ai-summary" role="status"><span>Computer: ${summary.map(escapeHtml).join('; ')}.</span><button type="button" aria-label="Dismiss computer summary" onclick="window.dismissComputerSummary()">×</button></div>`;
 }
+export function hintBannerHtml(lines) {
+  if (!lines.length) return '';
+  return `<div class="ai-summary ai-hint-summary" role="status" aria-label="Hint suggestion"><span>Hint: ${lines.map(escapeHtml).join('; ')}. <small>Just a suggestion.</small></span><button type="button" aria-label="Dismiss hint" onclick="window.dismissHint()">×</button></div>`;
+}
 export function levelPickerHtml(selected = 1) {
   return `<label for="ai-level">Computer level</label><select id="ai-level">${Object.entries(LEVEL_LABELS).map(([level, label]) => `<option value="${level}"${Number(level) === selected ? ' selected' : ''}>${label}</option>`).join('')}</select><button class="action-button" onclick="window.startVsComputer(Number(document.getElementById('ai-level').value))">Start game</button>`;
 }

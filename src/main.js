@@ -1,7 +1,8 @@
 import { isStraightLine } from './engine/tokens.js';
 import "./style.css";
 import { aiModeAvailable, vsComputer, enableComputer, disableComputer, applyGameInto,
-  rememberedLevel, rememberLevel, levelPickerHtml, scheduleComputerTurn } from './ai/vs-computer.js';
+  rememberedLevel, rememberLevel, levelPickerHtml, scheduleComputerTurn, hintBannerHtml } from './ai/vs-computer.js';
+import { computeHint } from './ai/hint.js';
 import { VS_COMPUTER_SAVE_KEY, serializeSnapshot, parseSnapshot } from './ai/vs-computer-save.js';
 import { aiTurnRecap, engineStateFromGame } from './ai/bridge.js';
 import cardsCsv from "./splendor_cards.csv?raw";
@@ -247,6 +248,11 @@ let tokensToDiscard = [];
 let tokenDiscardMode = false;
 let requiredDiscardCount = 0; // Number of tokens that must be discarded
 let discardModalMinimized = false; // Whether discard modal is minimized
+
+// Transient hint UI is excluded from game snapshots.
+let hintController = null;
+let hintSnapshot = null;
+let hintLines = [];
 
 // Persistent client identifier (used to lock player slots in online games)
 const CLIENT_ID_STORAGE_KEY = "splendor_duel_client_id";
@@ -956,6 +962,10 @@ const clearTurnGuardMessage = () => {
 };
 
 const ensureLocalTurn = (reason = "This action is only available on your turn.") => {
+  if (vsComputer.enabled && !syncContext.enabled) {
+    clearHint();
+    queueMicrotask(updateHintUI);
+  }
   if (isGameOver()) {
     console.warn("Action blocked: game is already over.");
     return false;
@@ -3362,8 +3372,10 @@ const generateGameLayout = () => {
           <span class="sync-turn-indicator" id="sync-turn-indicator"></span>
           <button class="action-button sync-nudge-btn" id="sync-nudge-btn" type="button" aria-label="Nudge opponent" hidden>Nudge</button>
         </div>
+        <span id="hint-controls">${hintButtonHtml()}</span>
         <button class="settings-btn" id="settings-btn" title="Game settings" onclick="window.showSettings()">⚙</button>
       </div>
+      <div id="hint-banner">${hintBannerHtml(hintLines)}</div>
       ${vsComputer.enabled && (vsComputer.busy || vsComputer.error) ? `<div class="ai-thinking" role="status" aria-live="polite"><div>${vsComputer.error || 'Computer is thinking...'}${vsComputer.error ? '<button class="action-button" data-ai-retry onclick="window.retryComputerTurn()">Retry computer turn</button>' : ''}</div></div>` : ''}
       <div class="sync-turn-warning" id="turn-guard-message" aria-live="polite"></div>
       <div id="sync-nudge-message" class="sync-nudge-message" role="status" aria-live="polite" hidden></div>
@@ -4524,6 +4536,7 @@ let scrollSelectionMode = false;
 let scrollSelectedToken = null;
 
 const resetTransientActionState = () => {
+  clearHint();
   selectedCard = null;
   selectedCardElement = null;
   purchaseContext = null;
@@ -4775,6 +4788,7 @@ const generateTokenOverlays = () => {
 
 // Re-render token board in modal
 const renderTokenBoard = () => {
+  updateHintUI();
   const tokenContainer = document.getElementById('token-board-container');
   if (tokenContainer) {
     // Render the SVG
@@ -6087,6 +6101,7 @@ const attachPopoverListeners = () => {
 };
 
 const renderGame = () => {
+  validateHint();
   document.querySelector("#app").innerHTML = generateGameLayout();
   // Rebuild the local Computer recap after every render until Start Turn acknowledges it.
   if (vsComputer.enabled && !vsComputer.busy && hasUnseenOpponentTurn()) {
@@ -6635,6 +6650,62 @@ const maybeAdjustPollingCadence = () => {
 
 // UI handler functions (exposed to window for onclick handlers)
 // Local Computer mode: all UI glue stays separate from online handoff/sync.
+const hintAvailable = () => vsComputer.enabled && !syncContext.enabled
+  && !vsComputer.busy && gameState.currentPlayer !== Number(vsComputer.aiPlayerId.slice(-1))
+  && !isGameOver() && !gameState.turnState?.actionCompleted && !gameState.turnState?.mandatoryDone
+  && !gameState.pending && !bonusTokenMode && !stealTokenMode && !pendingWildCard
+  && !royalCardSelectionMode && !tokenDiscardMode && !selectedTokens.length && !scrollSelectedToken;
+const hintButtonHtml = () => hintAvailable()
+  ? `<button class="action-button" id="hint-btn" type="button" aria-label="Show a hint" onclick="window.showHint()"${hintController ? ' disabled' : ''}>${hintController ? 'Thinking…' : 'Hint'}</button>` : '';
+const clearHint = () => {
+  hintController?.abort();
+  hintController = null;
+  hintSnapshot = null;
+  hintLines = [];
+  document.querySelector('#hint-banner')?.replaceChildren();
+};
+const hintFingerprint = () => JSON.stringify({ gameState, previousCrownCounts });
+const validateHint = () => {
+  if (hintSnapshot && (!hintAvailable() || hintSnapshot !== hintFingerprint())) clearHint();
+};
+const updateHintUI = () => {
+  validateHint();
+  const controls = document.getElementById('hint-controls');
+  const banner = document.getElementById('hint-banner');
+  if (controls) controls.innerHTML = hintButtonHtml();
+  if (banner) banner.innerHTML = hintBannerHtml(hintLines);
+};
+window.showHint = async () => {
+  if (!hintAvailable() || hintController) return;
+  const snapshot = structuredClone({ gameState, previousCrownCounts });
+  const controller = new AbortController();
+  hintController = controller;
+  hintSnapshot = hintFingerprint();
+  hintLines = [];
+  updateHintUI();
+  // A separate random stream leaves the live game's randomness untouched.
+  let seed = crypto.getRandomValues(new Uint32Array(1))[0];
+  const rng = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 2 ** 32;
+  };
+  try {
+    const result = await computeHint(snapshot, { level: vsComputer.level, rng, signal: controller.signal });
+    validateHint();
+    if (controller.signal.aborted || hintController !== controller) return;
+    hintLines = result.lines;
+  } catch (error) {
+    if (error.name !== 'AbortError' && hintController === controller) hintLines = ['Could not calculate a hint. Please try again'];
+  } finally {
+    if (hintController === controller) {
+      hintController = null;
+      updateHintUI();
+    }
+  }
+};
+window.dismissHint = () => { clearHint(); updateHintUI(); };
+window.addEventListener('pagehide', clearHint);
+
 const runComputerTurn = () => scheduleComputerTurn({
   getGame: () => ({ gameState, previousCrownCounts }),
   rng: Math.random,
@@ -6690,7 +6761,7 @@ window.startVsComputer = level => {
 window.retryComputerTurn = runComputerTurn;
 window.dismissComputerSummary = () => {
   vsComputer.summary = [];
-  document.querySelector('.ai-summary')?.remove();
+  document.querySelector('.ai-summary:not(.ai-hint-summary)')?.remove();
 };
 
 // Capture input, including keyboard activation, before the page's action handlers.
@@ -6704,6 +6775,10 @@ if (aiModeAvailable()) {
   for (const type of ['click', 'pointerdown', 'touchstart', 'keydown']) {
     document.addEventListener(type, event => {
       if (!vsComputer.enabled) return;
+      if (type === 'click' && !event.target.closest?.('#hint-controls, #hint-banner')) {
+        clearHint();
+        queueMicrotask(updateHintUI);
+      }
       if ((vsComputer.busy || gameState.currentPlayer === 2) && !isGameOver()) {
         if (!vsComputer.busy && event.target.closest?.('[data-ai-retry]')) return;
         event.preventDefault();
