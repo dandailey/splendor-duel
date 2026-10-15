@@ -5112,7 +5112,9 @@ html.tab-inactive .reserved-section.reserved-affordable {
   display: grid;
   place-items: center;
   background: rgba(0, 0, 0, 0.45);
-  pointer-events: auto;
+  /* The capture-phase guard in main.js already cancels game input while the Computer moves; the dimmer must not
+     also swallow the gear (Settings holds notification setup). Only the retry button takes clicks. */
+  pointer-events: none;
 }
 .ai-thinking > div {
   padding: 24px;
@@ -5120,7 +5122,8 @@ html.tab-inactive .reserved-section.reserved-affordable {
   background: white;
   color: #172c46;
 }
-.ai-thinking button { display: block; margin-top: 12px; }
+.ai-thinking button { display: block; margin-top: 12px; pointer-events: auto; }
+body:has(.modal-overlay[style*="display: flex"]) .ai-thinking { display: none; }
 #ai-level-picker:not([hidden]) { display: grid; gap: 10px; margin-top: 12px; }
 #ai-level-picker select { padding: 8px; font-size: 16px; }
 
