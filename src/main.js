@@ -6819,6 +6819,8 @@ if (aiModeAvailable()) {
       }
       if ((vsComputer.busy || gameState.currentPlayer === 2) && !isGameOver()) {
         if (!vsComputer.busy && event.target.closest?.('[data-ai-retry]')) return;
+        // Settings (gear and dialog) stay usable while the Computer moves: it holds notification setup.
+        if (event.target.closest?.('#settings-btn, #settings-modal')) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         return;

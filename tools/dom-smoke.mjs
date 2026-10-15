@@ -497,8 +497,49 @@ try {
       if (stateOf(beta).currentPlayer !== 2) continue;
       requireThat(!beta.document.querySelector('#hint-btn'), 'Hint visible while computer busy');
       requireThat(beta.document.querySelector('#undo-btn')?.disabled, 'Undo enabled while computer busy');
+      // scheduleComputerTurn sets busy before its 60ms timer. Keep these
+      // clicks synchronous, as with the busy Undo assertion above, so the
+      // real Computer turn stays pending throughout the Settings/guard checks.
+      requireThat(beta.document.querySelector('.ai-thinking')?.textContent.includes('Computer is thinking'), 'Computer not busy');
+      const before = plainState(beta);
+      const storage = copyStorage(beta);
+      beta.document.querySelector('#settings-btn').click();
+      settingsContent(beta, 'computer');
+      beta.document.querySelector('#settings-modal [data-action="closeSettings"]').click();
+      requireThat(beta.document.querySelector('#settings-modal').style.display === 'none', 'busy Settings did not close');
+      requireThat(!beta.document.querySelector('.game-container').classList.contains('dialog-blocking'), 'closing busy Settings must unblock the game');
+      assert.deepEqual(plainState(beta), before, 'busy Settings changed state/history');
+      assert.deepEqual(copyStorage(beta), storage, 'busy Settings changed saved state');
+      for (const selector of ['#token-board-top .token-cell', '#undo-btn']) {
+        const target = beta.document.querySelector(selector);
+        requireThat(target, `busy input target missing: ${selector}`);
+        let reachedTarget = false;
+        const onClick = () => { reachedTarget = true; };
+        target.addEventListener('click', onClick);
+        // dispatchEvent also exercises disabled Undo: .click() alone would
+        // be a browser no-op and would not prove the capture guard ran.
+        const event = new beta.MouseEvent('click', { bubbles: true, cancelable: true });
+        try {
+          requireThat(!target.dispatchEvent(event) && event.defaultPrevented, `busy click not cancelled: ${selector}`);
+          requireThat(!reachedTarget, `busy click reached target: ${selector}`);
+        } finally {
+          target.removeEventListener('click', onClick);
+        }
+        assert.deepEqual(plainState(beta), before, `busy click changed state/history: ${selector}`);
+        assert.deepEqual(copyStorage(beta), storage, `busy click changed saved state: ${selector}`);
+        requireThat(beta.document.querySelector('#token-selection-modal').style.display !== 'flex', 'busy board click opened token selection');
+      }
+      requireThat(beta.document.querySelector('.ai-thinking') && stateOf(beta).currentPlayer === 2, 'Settings/blocked clicks interrupted Computer turn');
       await aiFinished(beta);
-      return `AI first on attempt ${attempt}; scheduled turn finished, player1 control, all invariants and summary verified`;
+      const after = plainState(beta);
+      requireThat(after.turnHistory.turns.length === before.turnHistory.turns.length + 1, 'Computer turn did not finish exactly once');
+      requireThat(after.turnHistory.turns.at(-1).playerId === 'player2', 'completed turn is not the Computer turn');
+      requireThat(JSON.stringify(after.gameState.players.player2) !== JSON.stringify(before.gameState.players.player2), 'Computer did not act after busy Settings');
+      const saved = JSON.parse(beta.localStorage.getItem(VS_COMPUTER_SAVE_KEY)).state;
+      for (const key of ['gameState', 'previousCrownCounts', 'turnHistory']) {
+        assert.deepEqual(saved[key], after[key], `completed Computer save differs from live ${key}`);
+      }
+      return `AI first on attempt ${attempt}; busy Settings opens with Turn notifications and Close works; board/Undo clicks cancelled before target with state/history/storage unchanged; scheduled turn finished exactly once, player1 control, save, invariants and summary verified`;
     }
     throw new Error('AI never started first in 20 attempts');
   });
