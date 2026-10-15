@@ -7080,21 +7080,15 @@ const showSettings = () => {
   const content = document.getElementById('settings-content');
   
   if (!modal || !content) return;
-  if (vsComputer.enabled) {
-    content.innerHTML = `<p>You are playing vs Computer (level ${vsComputer.level})</p><button class="action-button" data-action="newComputerGameFromSettings" data-arg="${escapeActionAttribute(vsComputer.level)}">New game vs Computer</button><button class="action-button" data-action="chooseModeFromSettings">Choose game mode</button>`;
-    modal.style.display = 'flex';
-    modal.style.pointerEvents = 'auto';
-    document.querySelector('.game-container')?.classList.add('dialog-blocking');
-    return;
-  }
-
   const trimmedSessionId = trimSessionId(syncContext.sessionId);
   const shareUrl = buildShareUrl(syncContext.sessionId);
   const shareQrSrc = buildShareQrUrl(shareUrl);
   
   let html = '';
   
-  if (syncContext.enabled && syncContext.sessionId) {
+  if (vsComputer.enabled) {
+    html += `<p>You are playing vs Computer (level ${vsComputer.level})</p><button class="action-button" data-action="newComputerGameFromSettings" data-arg="${escapeActionAttribute(vsComputer.level)}">New game vs Computer</button><button class="action-button" data-action="chooseModeFromSettings">Choose game mode</button>`;
+  } else if (syncContext.enabled && syncContext.sessionId) {
     html += `
       <div class="settings-copy-group">
         <p><strong>Session ID:</strong></p>
@@ -7148,7 +7142,7 @@ const showSettings = () => {
   `;
   }
 
-  if (isGameOver()) {
+  if (isGameOver() && !vsComputer.enabled) {
     const restartLabel = syncContext.enabled ? "Start New Game (Same Session)" : "Start New Local Game";
     html += `
       <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 12px;">

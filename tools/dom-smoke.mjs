@@ -38,6 +38,32 @@ async function until(predicate, reason, timeout = 8000) {
   }
 }
 function requireThat(ok, reason) { if (!ok) throw new Error(reason); }
+function settingsContent(window, mode, webPush = false) {
+  const content = window.document.querySelector('#settings-content');
+  requireThat(window.document.querySelector('#settings-modal')?.style.display === 'flex', 'Settings did not open');
+  requireThat(window.document.querySelector('.game-container')?.classList.contains('dialog-blocking'), 'Settings must block the game');
+  requireThat(content?.querySelector('#browser-push-settings')?.textContent.includes('Turn notifications:'), `${mode} Turn notifications section missing`);
+  requireThat(content.querySelector('[data-action="chooseModeFromSettings"]')?.textContent.trim() === 'Choose game mode', `${mode} Choose game mode missing`);
+  if (mode === 'computer') {
+    requireThat(content.textContent.includes('You are playing vs Computer (level 3)'), 'Computer mode description missing');
+    requireThat(content.querySelector('[data-action="newComputerGameFromSettings"]')?.textContent.trim() === 'New game vs Computer', 'New game vs Computer missing');
+    const undo = window.document.querySelector('#undo-btn');
+    requireThat(undo, 'Computer Undo button missing');
+    // This harness loads the bundled style.css, so the ordinary class selector
+    // can be checked with computed styles without relying on :has support.
+    requireThat(window.document.styleSheets.length > 0, 'fixture stylesheet missing');
+    requireThat(window.getComputedStyle(undo).visibility === 'hidden', 'Undo must be hidden while Settings blocks the game');
+  } else {
+    requireThat(content.textContent.includes('You are playing in local mode.'), 'local mode description changed');
+    requireThat(!content.querySelector('[data-action="newComputerGameFromSettings"]'), 'Computer new-game button shown in local mode');
+  }
+  if (webPush) {
+    requireThat(content.querySelector('#browser-push-settings #native-push-button')?.textContent.trim() === 'Turn on push', 'Web Push button missing');
+    requireThat(!content.querySelector('[data-action="enableTurnNotifications"]'), 'browser fallback still shown with Web Push');
+  } else {
+    requireThat(content.querySelector('#browser-push-settings [data-action="enableTurnNotifications"]')?.textContent.trim() === 'Enable Turn Notifications', 'browser fallback button missing');
+  }
+}
 async function check(label, fn) {
   try { console.log(`PASS ${label}: ${await fn()}`); }
   catch (error) { failures++; console.log(`FAIL ${label}: ${error.message}`); }
@@ -136,19 +162,20 @@ try {
   const beta = openPage(html, 'beta', 'https://danieldailey.com/splendor_duel/index.html?debug');
   await until(() => beta.document.querySelector('.game-container'), 'beta page initialization');
   await check('delegated settings open/close', async () => {
-    beta.document.querySelector('[data-action="closeModeSelection"]').click();
+    beta.selectLocalMode();
     beta.document.querySelector('#settings-btn').click();
     const modal = beta.document.querySelector('#settings-modal');
-    requireThat(modal.style.display === 'flex', 'settings did not open');
+    settingsContent(beta, 'local');
     modal.querySelector('[data-action="closeSettings"]').click();
     requireThat(modal.style.display === 'none', 'settings did not close');
+    requireThat(!beta.document.querySelector('.game-container').classList.contains('dialog-blocking'), 'closing Settings must unblock the game');
     beta.showModeSelection();
-    return 'converted settings buttons open and close the modal';
+    return 'local Settings retains Turn notifications/browser fallback and Choose game mode; open blocks and close unblocks the game';
   });
   await check('Web Push Settings dark gate', async () => {
-    for (const status of [404, 200]) {
+    for (const mode of ['local', 'computer']) for (const status of [404, 200]) {
       let vapidCalls = 0;
-      const page = openPage(html, `webpush-${status}`, 'https://danieldailey.com/splendor_duel/index.html?debug', {},
+      const page = openPage(html, `webpush-${mode}-${status}`, 'https://danieldailey.com/splendor_duel/index.html?debug', {},
         async url => {
           if (new URL(url).searchParams.get('action') === 'vapid_public_key') {
             vapidCalls++;
@@ -168,7 +195,10 @@ try {
         });
       await until(() => page.document.querySelector('.game-container'), 'web push initialization');
       requireThat(vapidCalls === 0, 'VAPID check must be lazy');
-      page.document.querySelector('[data-action="closeModeSelection"]').click();
+      if (mode === 'computer') {
+        page.startVsComputer(3);
+        if (stateOf(page).currentPlayer === 2) await aiFinished(page);
+      } else page.selectLocalMode();
       page.document.querySelector('#settings-btn').click();
       await until(() => vapidCalls === 1, 'lazy VAPID request');
       if (status === 200) {
@@ -180,9 +210,11 @@ try {
         requireThat(!page.document.querySelector('#native-push-button'), '404 must keep web push dark');
         requireThat(page.document.querySelector('#settings-content [data-action="enableTurnNotifications"]'), 'browser fallback missing');
       }
+      settingsContent(page, mode, status === 200);
       page.document.querySelector('[data-action="closeSettings"]').click();
+      page.close();
     }
-    return 'installed PWA checks lazily; VAPID 200 reveals controls and 404 preserves fallback';
+    return 'local and Computer Settings retain mode controls and block the game; lazy VAPID 200 shows Web Push, 404 preserves fallback; Computer Undo hidden';
   });
   await check('online Nudge with fake GameSync', async () => {
     const fixture = plainState(beta);
@@ -450,6 +482,13 @@ try {
     invariants(beta);
     humanView(beta);
     return 'level 3 game rendered; bottom hand remains player1 across AI handoff';
+  });
+  await check('Computer Settings browser fallback and blocking Undo', async () => {
+    beta.document.querySelector('#settings-btn').click();
+    settingsContent(beta, 'computer');
+    beta.document.querySelector('[data-action="closeSettings"]').click();
+    requireThat(!beta.document.querySelector('.game-container').classList.contains('dialog-blocking'), 'closing Computer Settings must unblock the game');
+    return 'Turn notifications and Enable Turn Notifications shown without Web Push support; both Computer mode buttons retained; dialog-blocking hides Undo via loaded CSS';
   });
   await check('(d) computer starts first', async () => {
     await until(() => !beta.document.querySelector('.ai-thinking'), 'previous AI finishes');

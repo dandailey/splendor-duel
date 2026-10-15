@@ -5142,3 +5142,11 @@ html.tab-inactive .reserved-section.reserved-affordable {
   position: relative;
   z-index: 20001;
 }
+
+/* Undo yields to any blocking dialog (Settings, mode picker, discard); it only outranks the recap overlays. */
+.game-container.dialog-blocking #undo-btn {
+  visibility: hidden;
+}
+body:has(.modal-overlay[style*="display: flex"]) #hint-controls #undo-btn {
+  visibility: hidden;
+}
